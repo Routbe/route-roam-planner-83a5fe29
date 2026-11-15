@@ -64,7 +64,7 @@ describe("db/0280", () => {
 
   it("keeps a proof-of-work hash single-use", async () => {
     const spend = async () =>
-      (await db.query<{ ok: boolean }>("select public.rout_pow_spend('h-0280', 'test', now() + interval '5 minutes') as ok")).rows[0]!.ok;
+      (await db.query<{ ok: boolean }>("select public.rout_pow_spend(repeat('ab', 32), 'test', now() + interval '5 minutes') as ok")).rows[0]!.ok;
     expect(await spend()).toBe(true);
     expect(await spend()).toBe(false);
   });
