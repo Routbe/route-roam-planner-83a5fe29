@@ -5,14 +5,17 @@
  * availability over the whole block, live overlap/capacity/calendar checks,
  * then the insert. The GiST EXCLUDE constraint stays the last line of defence.
  * Status and payment hold come from the event type, never from this code.
+ * Sealed bookings (db/0278) enter through rout_booking_create_sealed, which wraps it.
  */
 import { sql, withDbContext } from "@/lib/neon";
 import type { BookingOutcome, BookingRequest } from "./types";
 import { publicEventType } from "./public.server";
-import { b64uDecode, isHostEnvelopeFor, MAX_SEALED_INTAKE_BYTES, SEALED_GUEST_NAME, SEALED_INTAKE_VERSION, sealedGuestEmail } from "./sealed-booking";
-import type { EventTypeHostKey } from "./host-booking-key.server";
+import { b64uDecode, isHostEnvelopeFor, MAX_SEALED_HOSTS } from "./sealed-booking";
+import { eventTypeHostKeys, type EventTypeHostKey } from "./host-booking-key.server";
+import { bytesToHex, sealedSchemaReady } from "./sealed-schema.server";
+import { checkSealedPow } from "@/lib/crypto-enclave/sealed-pow";
 
-const OUTCOMES = new Set(["slot_taken", "outside_availability", "too_soon", "too_far", "inactive", "invalid_input", "guest_limit"]);
+const OUTCOMES = new Set(["slot_taken", "outside_availability", "too_soon", "too_far", "inactive", "invalid_input", "invalid_intake", "guest_limit", "host_key_missing", "pow_stale"]);
 
 export function isSlotTakenError(err: unknown): boolean {
   const e = err as { code?: string; message?: string; body?: string };
@@ -24,54 +27,71 @@ type CreateResult =
   | { ok: false; reason: string }
   | { ok: true; bookingIds: string[]; hostIds: string[]; token: string | null; status: string; holdExpiresAt: string | null; groupId: string | null };
 
+export type SealedCopy = { ref: string; envelope: string; bytes: Uint8Array };
+
+/** Decodes every host copy; null when any copy is not canonical base64url. */
+export function decodeSealedCopies(sealed: BookingRequest["sealed"]): SealedCopy[] | null {
+  const out: SealedCopy[] = [];
+  for (const [ref, envelope] of Object.entries(sealed.hosts)) {
+    const bytes = b64uDecode(envelope);
+    if (!bytes) return null;
+    out.push({ ref, envelope, bytes });
+  }
+  return out;
+}
+
 /**
  * Checks sealed guest details against the hosts' published keys: exactly one
  * envelope per host reference, each an RVE1 bkh header for that host's key id
  * in one of the padded sizes. The server cannot open them and never tries.
  */
-export function sealedIntakeFor(sealed: BookingRequest["sealed"], hosts: EventTypeHostKey[]): string | null {
-  const refs = Object.keys(sealed.hosts);
-  if (refs.length !== hosts.length) return null;
-  for (const h of hosts) {
-    const text = sealed.hosts[h.ref];
-    const envelope = typeof text === "string" ? b64uDecode(text) : null;
-    if (!envelope || !isHostEnvelopeFor(envelope, h.kid)) return null;
-  }
-  const json = JSON.stringify({ v: SEALED_INTAKE_VERSION, pid: sealed.pid, hosts: sealed.hosts });
-  return new TextEncoder().encode(json).length <= MAX_SEALED_INTAKE_BYTES ? json : null;
+export function sealedCopiesMatch(copies: SealedCopy[], hosts: EventTypeHostKey[]): boolean {
+  if (copies.length !== hosts.length || copies.length > MAX_SEALED_HOSTS) return false;
+  const byRef = new Map(copies.map((c) => [c.ref, c]));
+  return hosts.every((h) => {
+    const c = byRef.get(h.ref);
+    return Boolean(c && isHostEnvelopeFor(c.bytes, h.kid));
+  });
 }
 
-/** Try to book; never throws for a lost race. Guest details arrive only sealed (Fase 1). */
+/**
+ * Try to book; never throws for a lost race. Guest details arrive only sealed. Order:
+ * proof-of-work over the exact ciphertext (no database involved), then the db/0278 schema
+ * probe, then the hosts' keys, then one definer call that writes the booking rows
+ * (placeholders only) and every host copy (public.booking_payloads) in one transaction.
+ */
 export async function bookSlot(req: BookingRequest): Promise<BookingOutcome> {
+  const copies = decodeSealedCopies(req.sealed);
+  if (!copies) return { ok: false, reason: "invalid_intake" };
+  const pow = checkSealedPow("booking", req.sealed.pid, copies.map((c) => ({ ref: c.ref, envelope: c.bytes })), req.pow, Date.now());
+  if (!pow.ok) return { ok: false, reason: pow.reason };
+
+  if (!(await sealedSchemaReady())) return { ok: false, reason: "unavailable" };
   const et = await publicEventType(req.eventTypeId);
   if (!et || et.hostCount === 0) return { ok: false, reason: "inactive" };
   const paid = et.priceCents != null;
   if (paid && !process.env["STRIPE_SECRET_KEY"]) return { ok: false, reason: "payment_unavailable" };
 
-  const keys = await import("./host-booking-key.server");
-  if (!(await keys.bookingKeyStorageReady())) return { ok: false, reason: "host_key_missing" };
-  const hostKeys = await keys.eventTypeHostKeys(await keys.productionBookingKeyStore(), await keys.eventTypeHostIds(et.id));
+  const hostKeys = await eventTypeHostKeys(et.id);
   if (!hostKeys.ok) return { ok: false, reason: hostKeys.reason };
-  const intakeJson = sealedIntakeFor(req.sealed, hostKeys.hosts);
-  if (!intakeJson) return { ok: false, reason: "invalid_intake" };
-  // Fixed placeholders: db/0218 requires a name and an address, but neither may be the guest's.
-  const guestName = SEALED_GUEST_NAME;
-  const guestEmail = sealedGuestEmail(req.sealed.pid);
-  const guestNote: string | null = null;
+  if (!sealedCopiesMatch(copies, hostKeys.hosts)) return { ok: false, reason: "invalid_intake" };
+  const payload = JSON.stringify(copies.map((c) => ({ ref: c.ref, envelope: c.envelope, hash: bytesToHex(pow.hashes.get(c.ref)!) })));
+  const useHold = Boolean(req.holdId && req.holdSecret && et.holdMinutes != null);
 
   let r: CreateResult;
   try {
-    // The 9-argument form (db/0218) consumes the visitor's soft-lock; a hold only exists once 0218 is live.
-    const rows = (req.holdId && req.holdSecret && et.holdMinutes != null
-      ? await sql`select public.rout_booking_create(${et.id}::uuid, ${req.startUtc}::timestamptz,
-          ${guestName}, ${guestEmail}, ${req.guestTimezone}, ${guestNote}, ${intakeJson}::jsonb,
-          ${req.holdId}::uuid, ${req.holdSecret}) as r`
-      : await sql`select public.rout_booking_create(${et.id}::uuid, ${req.startUtc}::timestamptz,
-          ${guestName}, ${guestEmail}, ${req.guestTimezone}, ${guestNote}, ${intakeJson}::jsonb) as r`) as { r: CreateResult }[];
+    const rows = (await sql`select public.rout_booking_create_sealed(${et.id}::uuid, ${req.startUtc}::timestamptz,
+        ${req.guestTimezone}, ${req.sealed.pid}::uuid, ${payload}::jsonb, ${req.pow.nonce}, ${req.pow.epoch}::int,
+        ${useHold ? req.holdId : null}::uuid, ${useHold ? req.holdSecret : null}) as r`) as { r: CreateResult }[];
     r = rows[0]!.r;
   } catch (err) {
     if (isSlotTakenError(err)) return { ok: false, reason: "slot_taken" };
+    // A replayed proof (same payload hash) trips the unique index on booking_payloads.
+    if ((err as { code?: string })?.code === "23505") return { ok: false, reason: "pow_invalid" };
     throw err;
+  } finally {
+    for (const c of copies) c.bytes.fill(0);
+    for (const h of pow.hashes.values()) h.fill(0);
   }
   if (!r.ok) {
     const reason = r.reason === "invalid_input" ? "invalid_intake" : r.reason;
