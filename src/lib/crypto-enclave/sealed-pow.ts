@@ -70,7 +70,11 @@ export function sealedBinding(purpose: SealedPowPurpose, pid: string, copies: re
     buf.set(p, at);
     at += p.length;
   }
-  return blake3(buf);
+  try {
+    return blake3(buf);
+  } finally {
+    buf.fill(0);
+  }
 }
 
 function preimage(binding: Uint8Array, epoch: number): Uint8Array {
@@ -100,8 +104,12 @@ const fromHex = (h: string) => Uint8Array.from({ length: h.length / 2 }, (_, i) 
 export function sealedPowDigest(binding: Uint8Array, epoch: number, nonceHex: string): Uint8Array {
   if (!SEALED_NONCE_HEX.test(nonceHex)) throw new SealedPowError("pow_input");
   const buf = preimage(binding, epoch);
-  buf.set(fromHex(nonceHex), buf.length - SEALED_NONCE_BYTES);
-  return blake3(buf);
+  try {
+    buf.set(fromHex(nonceHex), buf.length - SEALED_NONCE_BYTES);
+    return blake3(buf);
+  } finally {
+    buf.fill(0);
+  }
 }
 
 export function verifySealedPow(binding: Uint8Array, epoch: number, nonceHex: string, bits: number): boolean {
@@ -118,11 +126,74 @@ export function searchSealedPow(binding: Uint8Array, epoch: number, bits: number
   if (!isSealedPowBits(bits)) throw new SealedPowError("pow_input");
   const buf = preimage(binding, epoch);
   const view = new DataView(buf.buffer, buf.length - SEALED_NONCE_BYTES, SEALED_NONCE_BYTES);
-  const high = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
-  view.setUint32(0, high, false);
-  for (let i = 0, counter = startAt >>> 0; i < count; i++, counter = (counter + 1) >>> 0) {
-    view.setUint32(4, counter, false);
-    if (leadingZeroBits(blake3(buf)) >= bits) return hexOf(buf.subarray(buf.length - SEALED_NONCE_BYTES));
+  const high = crypto.getRandomValues(new Uint32Array(1));
+  view.setUint32(0, high[0] ?? 0, false);
+  high.fill(0);
+  try {
+    for (let i = 0, counter = startAt >>> 0; i < count; i++, counter = (counter + 1) >>> 0) {
+      view.setUint32(4, counter, false);
+      const digest = blake3(buf);
+      const hit = leadingZeroBits(digest) >= bits;
+      digest.fill(0);
+      if (hit) return hexOf(buf.subarray(buf.length - SEALED_NONCE_BYTES));
+    }
+    return null;
+  } finally {
+    buf.fill(0);
   }
-  return null;
 }
+
+/** Difficulty the server demands; the client solves at the same level. */
+export const SEALED_POW_REQUIRED_BITS = SEALED_POW_DEFAULT_BITS;
+/** Upper bound on nonces the worker tries (2^24: ~256x the expected work at 16 bits). */
+export const SEALED_POW_MAX_TRIES = 1 << 24;
+
+export type SealedPowProof = { nonce: string; epoch: number };
+export type SealedCopyBytes = { ref: string; envelope: Uint8Array };
+
+/** Solves the proof for the given copies in batches (crypto worker only); every temporary is wiped. */
+export function solveSealedPow(purpose: SealedPowPurpose, pid: string, copies: readonly SealedCopyBytes[], nowMs: number, bits = SEALED_POW_REQUIRED_BITS): SealedPowProof {
+  const hashes = copies.map((c) => ({ ref: c.ref, hash: payloadHash(c.envelope) }));
+  let binding: Uint8Array | null = null;
+  try {
+    binding = sealedBinding(purpose, pid, hashes);
+    const epoch = epochBucketAt(nowMs);
+    const batch = 4096;
+    for (let start = 0; start < SEALED_POW_MAX_TRIES; start += batch) {
+      const nonce = searchSealedPow(binding, epoch, bits, start, batch);
+      if (nonce) return { nonce, epoch };
+    }
+    throw new SealedPowError("pow_input");
+  } finally {
+    binding?.fill(0);
+    for (const h of hashes) h.hash.fill(0);
+  }
+}
+
+export type SealedPowCheck =
+  | { ok: true; hashes: Map<string, Uint8Array> }
+  | { ok: false; reason: "pow_invalid" | "pow_stale" };
+
+/**
+ * Server pre-validation, before any database call: the epoch is within one bucket of the
+ * server clock and the nonce meets SEALED_POW_REQUIRED_BITS over the exact ciphertext bytes.
+ * Returns the BLAKE3 payload hashes the database stores (unique: a replay is refused there).
+ */
+export function checkSealedPow(purpose: SealedPowPurpose, pid: string, copies: readonly SealedCopyBytes[], proof: SealedPowProof, nowMs: number): SealedPowCheck {
+  if (!SEALED_NONCE_HEX.test(proof.nonce) || !Number.isInteger(proof.epoch) || proof.epoch <= 0) return { ok: false, reason: "pow_invalid" };
+  if (!isEpochFresh(proof.epoch, nowMs)) return { ok: false, reason: "pow_stale" };
+  const hashes = new Map<string, Uint8Array>();
+  let binding: Uint8Array | null = null;
+  try {
+    for (const c of copies) hashes.set(c.ref, payloadHash(c.envelope));
+    binding = sealedBinding(purpose, pid, [...hashes].map(([ref, hash]) => ({ ref, hash })));
+    if (!verifySealedPow(binding, proof.epoch, proof.nonce, SEALED_POW_REQUIRED_BITS)) return { ok: false, reason: "pow_invalid" };
+    return { ok: true, hashes };
+  } catch {
+    return { ok: false, reason: "pow_invalid" };
+  } finally {
+    binding?.fill(0);
+  }
+}
+
+export const sealedPowProof = { nonce: SEALED_NONCE_HEX, maxEpoch: 0xffffffff } as const;
