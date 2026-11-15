@@ -1,16 +1,16 @@
 // @vitest-environment node
 /**
- * Integration test of db-pending/0278 on an offline replay of db/ (PGlite; Neon is never contacted).
+ * Integration test of db/0278 on an offline replay of db/ (PGlite; Neon is never contacted).
  * Exercises the definer entry points as rout_app with the caller in rout.current_user_id, the RLS
  * isolation between hosts, replay protection on the BLAKE3 payload hash, the epoch window, and the
- * rollback file. 0278 stays in db-pending/: this test applies it to the throwaway replay only.
+ * rollback file (db-pending/). 0278 was applied on Neon on 2026-11-15 and is part of the replay.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { blake3 } from "@noble/hashes/blake3.js";
-import { applyPending, replayDb, ROOT } from "../../scripts/formal-rls/replay";
+import { applyReleased, replayDb, ROOT } from "../../scripts/formal-rls/replay";
 import { AUDIT_ROLES, POLICY_GRANT_AUDIT_SQL } from "../../scripts/formal-rls/policy-grant-audit";
 import { hostBookingKeys, sealBookingPayload } from "@/lib/crypto-enclave/booking-seal";
 import { epochBucketAt, solveSealedPow } from "@/lib/crypto-enclave/sealed-pow";
@@ -51,7 +51,6 @@ const book = (pid: string, copies: unknown[], nonce: string, epoch: number, star
 
 beforeAll(async () => {
   db = await replayDb();
-  await applyPending(db, "0278_zk_inquiries_and_rve1_payloads.sql");
   await db.exec(`
     insert into public.users (id, email) values ('${A}', 'a@example.org'), ('${B}', 'b@example.org');
     insert into public.profiles (id, username, blocks) values ('${A}', 'ann', '[{"kind":"booking_request"}]'), ('${B}', 'bob', '[]')
@@ -63,7 +62,7 @@ beforeAll(async () => {
 }, 300_000);
 afterAll(async () => { await db?.close(); });
 
-describe("db-pending/0278 on a replay of db/", () => {
+describe("db/0278 on a replay of db/", () => {
   it("every audited role can execute each helper the new policies need; internal helpers stay closed to rout_app", async () => {
     await db.exec("reset role");
     expect((await db.query(POLICY_GRANT_AUDIT_SQL, [AUDIT_ROLES as unknown as string[]])).rows).toEqual([]);
@@ -164,6 +163,6 @@ describe("db-pending/0278 on a replay of db/", () => {
       coalesce(to_regclass('public.booking_payloads')::text, '') || coalesce(to_regclass('public.booking_host_keys')::text, '') as n`);
     expect(left.rows[0]!.n).toBe("");
     expect((await db.query("select 1 from pg_proc where proname like 'rout_inquiry_%' or proname like 'rout_booking_%sealed%' or proname = 'rout_booking_host_key_publish'")).rows).toHaveLength(0);
-    await applyPending(db, "0278_zk_inquiries_and_rve1_payloads.sql");
+    await applyReleased(db, "0278_zk_inquiries_and_rve1_payloads.sql");
   });
 });

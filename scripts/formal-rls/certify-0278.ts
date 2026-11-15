@@ -43,9 +43,9 @@ const certified = fresh.length === 0 && count("unproven") === 0 && report.unused
   && report.searchPath.findings.length === 0 && uncovered.length === 0;
 
 const md = [
-  `# Z3 certification — db-pending/${FILE}`,
+  `# Z3 certification — ${FILE}`,
   "",
-  `Run: ${new Date().toISOString()} · offline PGlite replay of db/ + db-pending/0278 · Neon not contacted`,
+  `Run: ${new Date().toISOString()} · offline PGlite replay of db/${existsSync(join(ROOT, "db", FILE)) ? " (0278 included)" : " + db-pending/0278"} · Neon not contacted`,
   "",
   `- Obligations: ${report.obligations.length}, Z3 checks: ${report.smtChecks}`,
   `- proven (unsat): ${count("proven")} · declassified (reviewed): ${count("declassified")} · service boundary: ${count("service_boundary")} · unproven: ${count("unproven")}`,
