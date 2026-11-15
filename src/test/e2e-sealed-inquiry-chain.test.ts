@@ -70,10 +70,10 @@ vi.mock("@/lib/crypto-enclave/pqc-envelope", async (orig) => {
     openEnvelope: (input: Parameters<typeof m.openEnvelope>[0]) => { const p = m.openEnvelope(input); h.secrets.push(p); return p; },
   };
 });
-// Capture the server's decoded envelope and its BLAKE3 hash.
+// Capture the server's decoded envelope and its BLAKE3 hash (a 1600-byte host public key is public data).
 vi.mock("@/lib/booking-engine/sealed-booking", async (orig) => {
   const m = await orig<typeof import("@/lib/booking-engine/sealed-booking")>();
-  return { ...m, b64uDecode: (s: string) => { const b = m.b64uDecode(s); if (b && b.length > 1000) h.serverBuffers.push(b); return b; } };
+  return { ...m, b64uDecode: (s: string) => { const b = m.b64uDecode(s); if (b && b.length > 1600) h.serverBuffers.push(b); return b; } };
 });
 vi.mock("@/lib/crypto-enclave/sealed-pow", async (orig) => {
   const m = await orig<typeof import("@/lib/crypto-enclave/sealed-pow")>();
@@ -163,7 +163,7 @@ describe("sealed request: visitor -> worker -> server -> Neon -> host Studio", (
     drain(h.serverBuffers);
     expect(await createSealedInquiry(request)).toEqual({ ok: true, pid: request.sealed.pid });
     const kept = drain(h.serverBuffers);
-    console.log("DBG", kept.map((b) => [b.length, b.some((x) => x !== 0)]));
+    expect(kept.map((b) => b.length).sort((a, b) => a - b)).toEqual([32, b64uDecode(request.sealed.envelope)!.length]);
     expect(allWiped(kept)).toBe(true);
     await h.db!.exec("reset role");
     const rows = (await h.db!.query<Record<string, unknown>>("select * from public.inquiries")).rows;
