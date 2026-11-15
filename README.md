@@ -362,7 +362,7 @@ ROUT treats security as architecture, not as a feature. These guarantees are enf
 - **Database rules (Z3):** `bun run verify:rls` checks every RLS policy of the schema snapshot with the Z3 solver. At schema 0277: 1,210 obligations, 1,170 proven, 10 declassified, 30 at the service boundary, 0 unproven. Still open: 55 known unique-key oracles (F6); `neon_auth` is outside the model.
 - **Timing (dudect):** `bun run test:dudect` ran N = 1,000,000 per operation for X25519, ML-KEM-1024 decapsulation, a constant-time compare, WebAuthn PRF to HKDF and AES-256-GCM: all below |t| = 4.5 (highest 4.08; `docs/dudect-audit-report.md`). OPAQUE, the ratchet and the VDF are not measured yet. A pass is statistical evidence, not a proof.
 - **Post-quantum ratchet:** ML-KEM-1024 + X25519 ratchet in `wasm/rout-zk` with worker ops and signed prekey bundles; tested, but no messaging screens yet and no live hardware test.
-- **Wesolowski VDF:** RSA-2048 (needs a trusted setup) and class groups of imaginary quadratic orders (no trusted setup; Shanks/Atkin composition) in `wasm/rout-zk`; Rust tests only, not wired into the app.
+- **Wesolowski VDF:** class groups of imaginary quadratic orders only (D = -p ≡ 1 mod 4, no trusted setup; NUCOMP/NUDUPL composition, shared limb arithmetic in `vdf_math.rs`) in `wasm/rout-zk`; the RSA-2048 variant was removed. Rust tests only, not exported by the Wasm module and not wired into the app.
 - None of this is an external audit; `docs/HANDOVER.md` keeps the dated record.
 
 ### Privacy defaults
