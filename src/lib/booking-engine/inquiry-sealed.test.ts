@@ -104,7 +104,13 @@ describe("createSealedInquiry", () => {
     const brevo = await import("@/lib/brevo/client");
     const s3 = await import("@/lib/storage/s3.server");
     expect(s3.putObject).not.toHaveBeenCalled();
-    const everything = JSON.stringify({ calls, mail: vi.mocked(brevo.sendSealedBookingRequestToHost).mock.calls });
+    // The envelope is random base64url and can contain a short name by chance; it is checked to be
+    // the sealed bytes above, so the plaintext search covers everything else that left the server.
+    const scrub = (v: unknown) => (v === sealed.envelope ? "<envelope>" : v);
+    const everything = JSON.stringify({
+      calls: calls.map((c) => ({ ...c, values: c.values.map(scrub) })),
+      mail: vi.mocked(brevo.sendSealedBookingRequestToHost).mock.calls,
+    });
     for (const secret of ["Ada", "ada@example.com", "allergie"]) expect(everything).not.toContain(secret);
   });
 
