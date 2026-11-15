@@ -105,8 +105,9 @@ export interface EnclaveOps {
   };
   /** Guest side: seals one payload for every host public key under a fresh payload id. */
   "booking.seal": {
-    req: { hosts: { ref: string; publicKey: Uint8Array }[]; payload: BookingPayload };
-    res: { payloadId: string; hosts: { ref: string; envelope: Uint8Array }[] };
+    /** With `pow`, the worker also solves the BLAKE3 Hashcash proof over the sealed copies (sealed-pow.ts). */
+    req: { hosts: { ref: string; publicKey: Uint8Array }[]; payload: BookingPayload; pow?: { purpose: "booking" | "inquiry" } };
+    res: { payloadId: string; hosts: { ref: string; envelope: Uint8Array }[]; pow: { nonce: string; epoch: number } | null };
   };
 
   "hash.sha256Hex": { req: { text: string }; res: string };

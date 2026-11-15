@@ -195,5 +195,3 @@ export function checkSealedPow(purpose: SealedPowPurpose, pid: string, copies: r
     binding?.fill(0);
   }
 }
-
-export const sealedPowProof = { nonce: SEALED_NONCE_HEX, maxEpoch: 0xffffffff } as const;

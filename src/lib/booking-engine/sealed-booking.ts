@@ -86,6 +86,20 @@ export type HostBookingKeyDoc = z.infer<typeof hostBookingKeyDoc>;
 /** What a guest receives per host: the reference and the public key, nothing else. */
 export type PublicHostKey = { ref: string; publicKey: string };
 
+/** Hashcash proof (crypto-enclave/sealed-pow.ts) over the exact envelopes; checked before any database call. */
+export const sealedPowInput = z
+  .object({ nonce: z.string().regex(/^[0-9a-f]{16}$/), epoch: z.number().int().positive().max(0xffffffff) })
+  .strict();
+export type SealedPowInput = z.infer<typeof sealedPowInput>;
+
+/** db/0278 intake marker: the host copies live in public.booking_payloads, not in intake_answers. */
+export const SEALED_INTAKE_V3 = 3;
+export function parseSealedIntakeV3(stored: unknown): { pid: string } | null {
+  if (typeof stored !== "object" || stored === null) return null;
+  const o = stored as { v?: unknown; pid?: unknown };
+  return o.v === SEALED_INTAKE_V3 && typeof o.pid === "string" && UUID.test(o.pid) && Object.keys(o).length === 2 ? { pid: o.pid } : null;
+}
+
 /** Sealed guest details as sent by the browser and stored in intake_answers. */
 export const sealedGuestDetails = z
   .object({
