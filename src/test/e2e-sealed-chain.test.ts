@@ -235,7 +235,7 @@ describe("sealed booking: visitor -> worker -> bookSlot -> booking_payloads -> h
 
     const before = h.dbCalls;
     expect(await bookSlot({ ...req, pow: { ...req.pow, nonce: req.pow.nonce.replace(/^./, (c) => (c === "0" ? "1" : "0")) } })).toEqual({ ok: false, reason: "pow_invalid" });
-    expect(await bookSlot({ ...req, pow: { ...req.pow, purpose: undefined, epoch: req.pow.epoch - 100 } as typeof req.pow })).toEqual({ ok: false, reason: "pow_stale" });
+    expect(await bookSlot({ ...req, pow: { ...req.pow, epoch: req.pow.epoch - 100 } })).toEqual({ ok: false, reason: "pow_stale" });
     expect(h.dbCalls).toBe(before);
 
     drain(h.serverBuffers);
