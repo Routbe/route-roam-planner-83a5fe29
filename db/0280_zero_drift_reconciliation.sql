@@ -6,7 +6,7 @@
 --    first applied through the gateway. Each is re-created below with the exact text an
 --    offline replay of db/ produces, so pg_proc.prosrc on Neon equals the replay byte for
 --    byte. Header, owner, volatility, search_path and grants stay the same: CREATE OR
---    REPLACE keeps the ACL, and the grants are restated explicitly below.
+--    REPLACE keeps the ACL, and the rout_app grants are restated explicitly below.
 -- 3. neon_auth.project_config.auth_logs_export_enabled was added on Neon by Neon Auth
 --    itself (the table is owned by the neon_auth role, not by this database's owner). The
 --    replay adds the same column only when it is missing, so on Neon this is a no-op and
@@ -76,7 +76,7 @@ begin
     where user_id=new.user_id and profile_space=new.space and not (id = any(kept));
   return new;
 end $function$;
-grant execute on function public.sync_social_grid_draft() to public, rout_app;
+grant execute on function public.sync_social_grid_draft() to rout_app;
 
 do $neon_auth$
 begin
