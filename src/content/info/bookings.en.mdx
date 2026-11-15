@@ -1,0 +1,75 @@
+---
+title: "Bookings"
+description: "Let visitors book a meeting with you through your profile, with your own working hours and rules. Guest names, emails and answers are encrypted in their browser."
+category: "info"
+last_updated: "2026-11-15"
+ai_ready: true
+seo_keywords: ["book appointments", "booking page", "calendly alternative", "share availability", "group session", "time zone", "encrypted bookings"]
+faqs:
+  - question: "Do visitors need an account?"
+    answer: "No. They pick a time and enter their name and email address. Those details are encrypted in their own browser. On the confirmation screen they add the meeting to their calendar."
+  - question: "Can ROUT read my guests' names and email addresses?"
+    answer: "Not for bookings made through your booking page. Name, email, note and answers are encrypted in the guest's browser for your booking key. The server only keeps that encrypted text and refuses unencrypted guest details. The time, meeting type and the guest's time zone stay readable, because your calendar needs them."
+  - question: "Does the guest get a confirmation email?"
+    answer: "No. ROUT does not know the guest's email address, so it cannot send one. The guest sees the status on the confirmation page and can save the meeting as a calendar file (.ics)."
+  - question: "Can ROUT see what is in my calendar?"
+    answer: "No. From a connected calendar ROUT only keeps the start and end of busy moments, no titles, places or attendees."
+  - question: "What if two people pick the same time at once?"
+    answer: "Whoever picks first holds that time for 5 minutes. The other no longer sees it and picks another time."
+---
+
+# Bookings
+
+Bookings gives you your own booking page on your profile. Visitors only see the moments when you are free, pick a day and time in their own time zone and add the meeting to their calendar right away.
+
+## How it works
+
+1. Open your agenda in ROUT and create a meeting type: length, place (video, address or phone) and whether you confirm every request yourself first.
+2. Set your working hours, with exceptions for holidays or a day off. Optionally connect your own calendar through a calendar link (ICS) or CalDAV.
+3. Open Studio once on a device that holds your master key. ROUT then creates your booking key and publishes its public part. Without that key nobody can book with you.
+4. Share your link or show your next free times on your profile.
+
+## What visitors see
+
+- A month calendar with the days that still have room, and the free times grouped by morning, afternoon and evening.
+- Times in the visitor's own time zone, in 12- or 24-hour format. Visitors can choose another time zone.
+- As soon as a visitor picks a time, it stays reserved for 5 minutes while they fill in their details.
+- After booking: a confirmation page with the status and a button to add the meeting to their calendar. No email follows.
+
+## Your rules
+
+- Breaks before and after every meeting, and a minimum notice within which nobody can book any more.
+- How far ahead people can book, also counted in working days.
+- A maximum number of meetings per day, week or month.
+- A per-visitor maximum counts by email address. For encrypted bookings ROUT does not know that address, so this limit does not apply to them for now.
+- Only show times right next to another meeting, so your day does not fall apart into fragments.
+
+## Groups and teams
+
+A group session has a fixed number of seats: several people book the same time until it is full. In a workspace a meeting can go to one fixed team member, to whoever is free first, or to all team members together. Each host gets their own encrypted copy of the guest details and opens only that one.
+
+## Encrypted guest details
+
+- **What is encrypted:** name, email, note and every answer to your questions. This happens in the guest's browser, with the public booking key of each host (ML-KEM-1024 + X25519, a combination designed to also withstand future quantum computers).
+- **Fixed sizes:** every encrypted copy is padded to 1, 4 or 16 KiB, so its size does not reveal how much someone wrote.
+- **What the server does see:** the chosen time, the meeting type, the guest's time zone, the status and whether payment was made. Like any web server it also sees technical data such as the IP address of a request.
+- **Where your key lives:** the public part and a sealed copy of the secret part are stored as a file in our European storage (Scaleway, Paris). The secret part is sealed with your master key and is only opened on your device, never on the server.
+- **Paid meetings:** ROUT does not pass an email address to the payment service (Stripe). Stripe asks the guest for it itself.
+
+## Limits
+
+- The host's public key comes from our server. As with any encryption in a web browser, you trust the server to deliver the right key.
+- The short request form on a profile card (a preferred date and time, without fixed slots) also encrypts name, email and message in the browser. You read those requests in Studio under **Appointments**; ROUT does not email the guest, so you reply yourself. Requests from before November 2026 were stored unencrypted.
+- Guests cannot yet see their own details again through their link.
+- Required questions are checked in the guest's browser; the server cannot read the encrypted answers.
+- A real booking on the live site with this encryption has not been confirmed yet.
+
+## Privacy
+
+- From connected calendars ROUT only keeps when you are busy.
+- Guest details are stored on the server only in encrypted form. If you lose your master key and do not recover it, older guest details can no longer be read.
+- Every booking is checked at the moment it is made, so nobody gets double-booked.
+
+## Prefer your own calendar service?
+
+You can also show a card with a Cal.com or Calendly booking link on your profile. That service then handles the meetings and the confirmation.

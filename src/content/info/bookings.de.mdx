@@ -1,0 +1,75 @@
+---
+title: "Termine"
+description: "Lass Besucher über dein Profil einen Termin bei dir buchen, mit deinen eigenen Arbeitszeiten und Regeln. Name, E-Mail und Antworten der Gäste werden in ihrem Browser verschlüsselt."
+category: "info"
+last_updated: "2026-11-15"
+ai_ready: true
+seo_keywords: ["Termine buchen", "Buchungsseite", "Calendly Alternative", "Verfügbarkeit teilen", "Gruppentermin", "Zeitzone", "verschlüsselte Buchungen"]
+faqs:
+  - question: "Brauchen Besucher ein Konto?"
+    answer: "Nein. Sie wählen eine Zeit und geben Name und E-Mail-Adresse an. Diese Angaben werden in ihrem eigenen Browser verschlüsselt. Auf der Bestätigungsseite tragen sie den Termin in ihren Kalender ein."
+  - question: "Kann ROUT Name und E-Mail-Adresse meiner Gäste lesen?"
+    answer: "Nicht bei Buchungen über deine Buchungsseite. Name, E-Mail, Notiz und Antworten werden im Browser des Gastes für deinen Buchungsschlüssel verschlüsselt. Der Server speichert nur diesen verschlüsselten Text und lehnt unverschlüsselte Gastdaten ab. Zeit, Terminart und Zeitzone des Gastes bleiben lesbar, weil dein Kalender sie braucht."
+  - question: "Bekommt der Gast eine Bestätigungs-E-Mail?"
+    answer: "Nein. ROUT kennt die E-Mail-Adresse des Gastes nicht und kann daher nicht mailen. Der Gast sieht den Status auf der Bestätigungsseite und kann den Termin als Kalenderdatei (.ics) speichern."
+  - question: "Sieht ROUT, was in meinem Kalender steht?"
+    answer: "Nein. Aus einem verbundenen Kalender speichert ROUT nur Beginn und Ende belegter Zeiten, keine Titel, Orte oder Teilnehmer."
+  - question: "Was, wenn zwei Personen gleichzeitig dieselbe Zeit wählen?"
+    answer: "Wer zuerst wählt, behält die Zeit 5 Minuten. Die andere Person sieht sie nicht mehr und wählt eine andere Zeit."
+---
+
+# Termine
+
+Mit Termine bekommst du deine eigene Buchungsseite auf deinem Profil. Besucher sehen nur die Zeiten, in denen du frei bist, wählen Tag und Uhrzeit in ihrer eigenen Zeitzone und tragen den Termin sofort in ihren Kalender ein.
+
+## So funktioniert es
+
+1. Öffne deine Agenda in ROUT und lege eine Terminart an: Dauer, Ort (Video, Adresse oder Telefon) und ob du jede Anfrage zuerst selbst bestätigst.
+2. Lege deine Arbeitszeiten fest, mit Ausnahmen für Urlaub oder einen freien Tag. Verbinde auf Wunsch deinen eigenen Kalender über einen Kalenderlink (ICS) oder CalDAV.
+3. Öffne Studio einmal auf einem Gerät, auf dem dein Hauptschlüssel liegt. ROUT erstellt dann deinen Buchungsschlüssel und veröffentlicht seinen öffentlichen Teil. Ohne diesen Schlüssel kann niemand bei dir buchen.
+4. Teile deinen Link oder zeige deine nächsten freien Zeiten auf deinem Profil.
+
+## Was Besucher sehen
+
+- Einen Monatskalender mit den Tagen, an denen noch Platz ist, und die freien Zeiten nach Morgen, Nachmittag und Abend.
+- Uhrzeiten in der eigenen Zeitzone des Besuchers, im 12- oder 24-Stunden-Format. Besucher können eine andere Zeitzone wählen.
+- Sobald ein Besucher eine Zeit wählt, bleibt sie 5 Minuten für ihn reserviert, während er seine Angaben ausfüllt.
+- Nach dem Buchen: eine Bestätigungsseite mit dem Status und einer Schaltfläche, um den Termin in den Kalender einzutragen. Es folgt keine E-Mail.
+
+## Deine Regeln
+
+- Pausen vor und nach jedem Termin und ein Mindestvorlauf, innerhalb dessen niemand mehr buchen kann.
+- Wie weit im Voraus gebucht werden kann, auch in Werktagen.
+- Eine Höchstzahl an Terminen pro Tag, Woche oder Monat.
+- Eine Höchstzahl pro Besucher zählt nach E-Mail-Adresse. Bei verschlüsselten Buchungen kennt ROUT diese Adresse nicht, daher gilt diese Grenze dort vorerst nicht.
+- Nur Zeiten direkt neben einem anderen Termin zeigen, damit dein Tag nicht zerstückelt wird.
+
+## Gruppen und Teams
+
+Ein Gruppentermin hat eine feste Platzzahl: Mehrere Personen buchen dieselbe Zeit, bis sie voll ist. In einem Workspace kann ein Termin an ein bestimmtes Teammitglied gehen, an wen zuerst frei ist, oder an alle Teammitglieder zusammen. Jeder Gastgeber erhält eine eigene verschlüsselte Kopie der Gastdaten und öffnet nur diese.
+
+## Verschlüsselte Gastdaten
+
+- **Was verschlüsselt wird:** Name, E-Mail, Notiz und jede Antwort auf deine Fragen. Das geschieht im Browser des Gastes, mit dem öffentlichen Buchungsschlüssel jedes Gastgebers (ML-KEM-1024 + X25519, eine Kombination, die auch künftigen Quantencomputern standhalten soll).
+- **Feste Größen:** Jede verschlüsselte Kopie wird auf 1, 4 oder 16 KiB aufgefüllt, damit ihre Größe nicht verrät, wie viel jemand geschrieben hat.
+- **Was der Server sieht:** die gewählte Zeit, die Terminart, die Zeitzone des Gastes, den Status und ob bezahlt wurde. Wie jeder Webserver sieht er außerdem technische Daten wie die IP-Adresse einer Anfrage.
+- **Wo dein Schlüssel liegt:** Der öffentliche Teil und eine versiegelte Kopie des geheimen Teils liegen als Datei in unserem europäischen Speicher (Scaleway, Paris). Der geheime Teil ist mit deinem Hauptschlüssel versiegelt und wird nur auf deinem Gerät geöffnet, nie auf dem Server.
+- **Bezahlte Termine:** ROUT gibt keine E-Mail-Adresse an den Zahlungsdienst (Stripe) weiter. Stripe fragt den Gast selbst danach.
+
+## Grenzen
+
+- Der öffentliche Schlüssel des Gastgebers kommt von unserem Server. Wie bei jeder Verschlüsselung im Webbrowser vertraust du darauf, dass der Server den richtigen Schlüssel liefert.
+- Auch das kurze Anfrageformular auf einer Profilkarte (Wunschdatum und -uhrzeit, ohne feste Zeitfenster) verschlüsselt Name, E-Mail und Nachricht im Browser. Du liest diese Anfragen in Studio unter **Termine**; ROUT schreibt dem Gast keine E-Mail, du antwortest also selbst. Anfragen von vor November 2026 wurden unverschlüsselt gespeichert.
+- Gäste können ihre eigenen Angaben über ihren Link noch nicht wieder einsehen.
+- Pflichtfragen werden im Browser des Gastes geprüft; der Server kann die verschlüsselten Antworten nicht lesen.
+- Eine echte Buchung auf der Live-Website mit dieser Verschlüsselung ist noch nicht bestätigt.
+
+## Datenschutz
+
+- Aus verbundenen Kalendern speichert ROUT nur, wann du belegt bist.
+- Gastdaten liegen auf dem Server nur verschlüsselt. Wer den Hauptschlüssel verliert und nicht wiederherstellt, kann ältere Gastdaten nicht mehr lesen.
+- Jede Buchung wird im Moment ihrer Erstellung geprüft, damit niemand doppelt gebucht wird.
+
+## Lieber dein eigener Kalenderdienst?
+
+Du kannst auch eine Karte mit einem Buchungslink von Cal.com oder Calendly auf deinem Profil zeigen. Dieser Dienst übernimmt dann die Termine und die Bestätigung.

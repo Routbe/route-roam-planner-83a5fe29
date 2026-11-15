@@ -19,3 +19,6 @@ is `src/routes/__root.tsx`.
 | `__root.tsx` | app shell — wraps every page; preserve `<Outlet />` |
 
 `routeTree.gen.ts` is auto-generated. Don't edit it by hand.
+
+## /dev previews
+- /dev/* preview routes and their server functions refuse outside development via `import.meta.env.DEV`, never `process.env.NODE_ENV` (unreliable in the edge runtime).

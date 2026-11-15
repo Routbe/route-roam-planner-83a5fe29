@@ -1,0 +1,39 @@
+---
+title: "Cryptographie"
+description: "Clés générées dans le navigateur, RSA-OAEP et AES-GCM, réservations chiffrées avec ML-KEM-1024 + X25519, et limites honnêtes de la préparation post-quantique."
+category: "safety"
+last_updated: "2026-11-15"
+ai_ready: true
+---
+
+# Cryptographie
+
+## Deux types de données d'audit
+
+Le registre chiffré facultatif n'est pas la même table que la chaîne de hachage des divulgations. Le registre conserve des contenus chiffrés ; les entrées de divulgation utilisent `entry_hash` et `previous_hash`. L'en-tête d'audit protégé appartient à la chaîne des divulgations.
+
+## Chiffrement par enveloppe
+
+Les clés sont générées dans le navigateur. RSA-OAEP avec des clés de 3072 bits protège l'enveloppe ; AES-256-GCM protège le contenu des événements avec des IV aléatoires et des identifiants de clé authentifiés. Le serveur conserve les clés publiques et les textes chiffrés/enveloppes chiffrées, jamais une clé privée non chiffrée.
+
+<Callout type="warning" title="Pas de protocole de connexion aveugle">Une redirection OIDC et l'émission de jetons restent visibles côté serveur. Le chiffrement du stockage ne rend pas ROUT aveugle au trafic qu'il traite.</Callout>
+
+## Réservations chiffrées
+
+Lors d'une réservation via une page de réservation, et avec le court formulaire de demande sur une carte de profil, le navigateur de l'invité chiffre le nom, l'e-mail, la note et les réponses dans le crypto-worker sous forme d'enveloppe RVE1 pour la clé de réservation de chaque hôte : ML-KEM-1024 + X25519, complétée à 1, 4 ou 16 Kio et liée à l'hôte et à la réservation. Le serveur ne vérifie que la forme de l'enveloppe, conserve le texte chiffré et refuse les requêtes contenant des champs d'invité non chiffrés. Une demande via le court formulaire est conservée sous forme d'enveloppe à côté de la clé de l'hôte dans le bucket client Scaleway ; la base de données ne reçoit que des valeurs de remplacement fixes, la date et l'heure souhaitées. ROUT n'envoie pas d'e-mail à l'invité : l'hôte répond lui-même depuis Studio. La partie secrète de la clé de l'hôte est scellée en AES-256-GCM sous la clé principale de l'hôte dans le bucket client Scaleway et n'est ouverte que dans le worker, sur l'appareil de l'hôte.
+
+<Callout type="warning" title="Limites">Le serveur fournit la clé publique de l'hôte ; un serveur malveillant pourrait servir une autre clé, comme pour tout chiffrement dans un navigateur web. L'heure, le type de rendez-vous, le fuseau horaire et le statut restent lisibles. Les demandes arrivées via le court formulaire avant novembre 2026 restent conservées sans chiffrement. Aucune réservation ou demande réelle avec ce chiffrement n'a encore été confirmée.</Callout>
+
+## Perte de clé et récupération
+
+La perte d'une clé ne doit pas bloquer le compte ROUT. Un ancien contenu du registre peut rester illisible sans clé utilisable. Le fonctionnement réel de WebAuthn PRF et de la récupération à seuil n'a pas été prouvé en production ; ce texte ne promet pas de protocole de récupération achevé.
+
+## Chaîne de hachage et en-tête d'audit
+
+La migration préparatoire de l'en-tête d'audit associe un déclencheur AFTER INSERT à `users.latest_audit_hash`. L'entrée et la mise à jour de l'en-tête ont lieu dans la même transaction PostgreSQL. Le vérificateur lit les lignes et l'en-tête dans un seul instantané. Une suppression en fin de chaîne peut ainsi être détectée dans la limite des droits de la base de données. Cela ne protège pas contre un retour en arrière de toute la base par son propriétaire.
+
+## Préparation post-quantique
+
+JWKS conserve ES256. La signature hybride/post-quantique est actuellement désactivée. RSA-OAEP et ES256 ne sont pas des algorithmes sûrs face à l'ordinateur quantique ; la modularité n'est pas une garantie cryptographique. Les jetons aveugles restent un futur chantier SDK distinct.
+
+Est en revanche hybride (classique + post-quantique) le chiffrement des données d'invité lors des réservations (ML-KEM-1024 + X25519). Un ratchet post-quantique et une VDF de Wesolowski existent comme briques testées dans le module de calcul, mais ne sont encore utilisés nulle part dans l'application. Les mesures de temps (dudect, 1 000 000 mesures par opération) sont restées sous |t| = 4,5 pour X25519, ML-KEM-1024, la comparaison en temps constant, PRF vers HKDF et AES-256-GCM ; OPAQUE, le ratchet et la VDF n'ont pas encore été mesurés. Une mesure réussie est une preuve statistique, pas une garantie.

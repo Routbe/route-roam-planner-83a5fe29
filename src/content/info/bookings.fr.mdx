@@ -1,0 +1,75 @@
+---
+title: "Rendez-vous"
+description: "Laissez les visiteurs réserver un rendez-vous via votre profil, avec vos propres heures et règles. Le nom, l'e-mail et les réponses des invités sont chiffrés dans leur navigateur."
+category: "info"
+last_updated: "2026-11-15"
+ai_ready: true
+seo_keywords: ["prise de rendez-vous", "page de réservation", "alternative à calendly", "partager ses disponibilités", "session de groupe", "fuseau horaire", "réservations chiffrées"]
+faqs:
+  - question: "Les visiteurs ont-ils besoin d'un compte ?"
+    answer: "Non. Ils choisissent un moment et indiquent leur nom et leur adresse e-mail. Ces données sont chiffrées dans leur propre navigateur. Sur l'écran de confirmation, ils ajoutent le rendez-vous à leur agenda."
+  - question: "ROUT peut-il lire le nom et l'adresse e-mail de mes invités ?"
+    answer: "Pas pour les réservations faites via votre page de réservation. Le nom, l'e-mail, la note et les réponses sont chiffrés dans le navigateur de l'invité pour votre clé de réservation. Le serveur ne garde que ce texte chiffré et refuse les données d'invité non chiffrées. L'heure, le type de rendez-vous et le fuseau horaire de l'invité restent lisibles, car votre agenda en a besoin."
+  - question: "L'invité reçoit-il un e-mail de confirmation ?"
+    answer: "Non. ROUT ne connaît pas l'adresse e-mail de l'invité et ne peut donc pas en envoyer. L'invité voit le statut sur la page de confirmation et peut enregistrer le rendez-vous comme fichier d'agenda (.ics)."
+  - question: "ROUT voit-il le contenu de mon agenda ?"
+    answer: "Non. D'un agenda connecté, ROUT ne garde que le début et la fin des moments occupés, sans titres, lieux ni participants."
+  - question: "Et si deux personnes choisissent la même heure en même temps ?"
+    answer: "La première garde ce créneau pendant 5 minutes. L'autre ne le voit plus et choisit un autre moment."
+---
+
+# Rendez-vous
+
+Avec les Rendez-vous, vous avez votre propre page de réservation sur votre profil. Les visiteurs ne voient que vos moments libres, choisissent un jour et une heure dans leur propre fuseau horaire et ajoutent aussitôt le rendez-vous à leur agenda.
+
+## Comment ça marche
+
+1. Ouvrez votre agenda dans ROUT et créez un type de rendez-vous : durée, lieu (vidéo, adresse ou téléphone) et si vous confirmez d'abord chaque demande vous-même.
+2. Indiquez vos heures de travail, avec des exceptions pour les vacances ou un jour de congé. Connectez éventuellement votre propre agenda via un lien d'agenda (ICS) ou CalDAV.
+3. Ouvrez Studio une fois sur un appareil qui contient votre clé principale. ROUT crée alors votre clé de réservation et publie sa partie publique. Sans cette clé, personne ne peut réserver chez vous.
+4. Partagez votre lien ou affichez vos prochains créneaux libres sur votre profil.
+
+## Ce que voit le visiteur
+
+- Un calendrier mensuel avec les jours où il reste de la place, et les heures libres par matin, après-midi et soir.
+- Les heures dans le fuseau horaire du visiteur, au format 12 ou 24 heures. Le visiteur peut choisir un autre fuseau.
+- Dès que le visiteur choisit une heure, elle lui reste réservée 5 minutes pendant qu'il remplit ses coordonnées.
+- Après la réservation : une page de confirmation avec le statut et un bouton pour ajouter le rendez-vous à l'agenda. Aucun e-mail ne suit.
+
+## Vos règles
+
+- Des pauses avant et après chaque rendez-vous, et un délai minimum en deçà duquel plus personne ne peut réserver.
+- Jusqu'où à l'avance on peut réserver, aussi en jours ouvrables.
+- Un nombre maximum de rendez-vous par jour, semaine ou mois.
+- Un maximum par visiteur se compte par adresse e-mail. Pour les réservations chiffrées, ROUT ne connaît pas cette adresse : cette limite ne s'y applique donc pas pour l'instant.
+- N'afficher que les heures qui suivent ou précèdent un autre rendez-vous, pour que votre journée ne soit pas morcelée.
+
+## Groupes et équipes
+
+Une session de groupe a un nombre de places fixe : plusieurs personnes réservent le même moment jusqu'à ce qu'il soit complet. Dans un workspace, un rendez-vous peut aller à un membre précis, à celui qui est libre en premier, ou à tous les membres ensemble. Chaque hôte reçoit sa propre copie chiffrée des données de l'invité et n'ouvre que celle-là.
+
+## Données d'invité chiffrées
+
+- **Ce qui est chiffré :** le nom, l'e-mail, la note et toutes les réponses à vos questions. Cela se fait dans le navigateur de l'invité, avec la clé de réservation publique de chaque hôte (ML-KEM-1024 + X25519, une combinaison conçue pour résister aussi aux futurs ordinateurs quantiques).
+- **Tailles fixes :** chaque copie chiffrée est complétée à 1, 4 ou 16 Kio, pour que sa taille ne révèle pas la longueur du texte.
+- **Ce que le serveur voit :** l'heure choisie, le type de rendez-vous, le fuseau horaire de l'invité, le statut et si un paiement a eu lieu. Comme tout serveur web, il voit aussi des données techniques comme l'adresse IP d'une requête.
+- **Où se trouve votre clé :** la partie publique et une copie scellée de la partie secrète sont stockées comme fichier dans notre stockage européen (Scaleway, Paris). La partie secrète est scellée avec votre clé principale et ne s'ouvre que sur votre appareil, jamais sur le serveur.
+- **Rendez-vous payants :** ROUT ne transmet aucune adresse e-mail au service de paiement (Stripe). Stripe la demande lui-même à l'invité.
+
+## Limites
+
+- La clé publique de l'hôte vient de notre serveur. Comme pour tout chiffrement dans un navigateur web, vous faites confiance au serveur pour livrer la bonne clé.
+- Le court formulaire de demande sur une carte de profil (une date et une heure souhaitées, sans créneaux fixes) chiffre lui aussi le nom, l'e-mail et le message dans le navigateur. Vous lisez ces demandes dans Studio, sous **Rendez-vous** ; ROUT n'envoie pas d'e-mail à l'invité, vous répondez donc vous-même. Les demandes antérieures à novembre 2026 ont été conservées sans chiffrement.
+- L'invité ne peut pas encore revoir ses propres données via son lien.
+- Les questions obligatoires sont vérifiées dans le navigateur de l'invité ; le serveur ne peut pas lire les réponses chiffrées.
+- Une vraie réservation sur le site en ligne avec ce chiffrement n'a pas encore été confirmée.
+
+## Vie privée
+
+- Des agendas connectés, ROUT ne garde que vos moments occupés.
+- Les données des invités ne sont conservées sur le serveur que sous forme chiffrée. Si vous perdez votre clé principale sans la récupérer, les anciennes données d'invité deviennent illisibles.
+- Chaque réservation est vérifiée au moment où elle est faite, pour que personne ne soit réservé deux fois.
+
+## Vous préférez votre propre service d'agenda ?
+
+Vous pouvez aussi afficher sur votre profil une carte avec un lien de réservation Cal.com ou Calendly. Ce service gère alors les rendez-vous et la confirmation.
