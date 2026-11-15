@@ -1,0 +1,39 @@
+---
+title: "Kryptografie"
+description: "Schlüssel aus dem Browser, RSA-OAEP und AES-GCM, verschlüsselte Buchungen mit ML-KEM-1024 + X25519 und die ehrlichen Grenzen der Post-Quanten-Bereitschaft."
+category: "safety"
+last_updated: "2026-11-15"
+ai_ready: true
+---
+
+# Kryptografie
+
+## Zwei Arten von Auditdaten
+
+Das optionale verschlüsselte Ledger ist nicht dieselbe Tabelle wie die Hash-Kette der Offenlegungen. Das Ledger speichert verschlüsselte Inhalte; Offenlegungseinträge verwenden `entry_hash` und `previous_hash`. Der geschützte Audit-Kopf gehört zur Offenlegungskette.
+
+## Umschlagverschlüsselung
+
+Schlüssel werden im Browser erzeugt. RSA-OAEP mit 3072-Bit-Schlüsseln schützt den Umschlag; AES-256-GCM schützt Ereignisinhalte mit zufälligen IVs und authentifizierten Schlüsselkennungen. Der Server speichert öffentliche Schlüssel und Chiffretext/verschlüsselte Umschläge, nie einen unverschlüsselten privaten Schlüssel.
+
+<Callout type="warning" title="Kein blindes Anmeldeprotokoll">Eine OIDC-Weiterleitung und die Token-Ausgabe bleiben auf dem Server sichtbar. Speicherverschlüsselung macht ROUT nicht blind für den Verkehr, den es verarbeitet.</Callout>
+
+## Verschlüsselte Buchungen
+
+Bei einer Buchung über eine Buchungsseite und beim kurzen Anfrageformular auf einer Profilkarte verschlüsselt der Browser des Gastes Name, E-Mail, Notiz und Antworten im Krypto-Worker als RVE1-Umschlag für den Buchungsschlüssel jedes Gastgebers: ML-KEM-1024 + X25519, aufgefüllt auf 1, 4 oder 16 KiB und an Gastgeber und Buchung gebunden. Der Server prüft nur die Form des Umschlags, speichert den Chiffretext und lehnt Anfragen mit unverschlüsselten Gastfeldern ab. Eine Anfrage über das kurze Formular liegt als Umschlag neben dem Gastgeberschlüssel im Scaleway-Client-Bucket; die Datenbank erhält nur feste Platzhalter, Wunschdatum und -uhrzeit. ROUT schreibt dem Gast keine E-Mail: Der Gastgeber antwortet selbst aus Studio. Der geheime Teil des Gastgeberschlüssels ist mit AES-256-GCM unter dem Hauptschlüssel des Gastgebers im Scaleway-Client-Bucket versiegelt und wird nur im Worker auf dem Gerät des Gastgebers geöffnet.
+
+<Callout type="warning" title="Grenzen">Der Server liefert den öffentlichen Gastgeberschlüssel; ein böswilliger Server könnte einen anderen Schlüssel ausliefern, wie bei jeder Verschlüsselung in einem Webbrowser. Uhrzeit, Terminart, Zeitzone und Status bleiben lesbar. Anfragen, die vor November 2026 über das kurze Formular eingegangen sind, bleiben unverschlüsselt gespeichert. Eine echte Buchung oder Anfrage mit dieser Verschlüsselung ist noch nicht bestätigt.</Callout>
+
+## Schlüsselverlust und Wiederherstellung
+
+Ein verlorener Schlüssel darf das ROUT-Konto nicht sperren. Ältere Ledger-Inhalte können ohne nutzbaren Schlüssel unlesbar bleiben. Echte WebAuthn-PRF- und Schwellenwert-Wiederherstellung sind nicht live nachgewiesen; dieser Text verspricht kein fertiges Wiederherstellungsprotokoll.
+
+## Hash-Kette und Audit-Kopf
+
+Die vorbereitende Audit-Kopf-Migration hängt einen AFTER-INSERT-Trigger an `users.latest_audit_hash`. Eintrag und Kopf-Aktualisierung liegen in derselben PostgreSQL-Transaktion. Der Prüfer liest Zeilen und Kopf in einem Snapshot. So lässt sich das Löschen am Kettenende innerhalb der Berechtigungsgrenze der Datenbank erkennen. Das schützt nicht vor einem Rollback der gesamten Datenbank durch ihren Eigentümer.
+
+## Post-Quanten-Bereitschaft
+
+JWKS behält ES256. Hybride/Post-Quanten-Signaturen sind derzeit deaktiviert. RSA-OAEP und ES256 sind keine post-quantensicheren Algorithmen; Modularität ist keine kryptografische Garantie. Blinded Tokens bleiben ein eigenes, künftiges SDK-Vorhaben.
+
+Hybrid (klassisch + Post-Quanten) ist dagegen die Verschlüsselung der Gastdaten bei Buchungen (ML-KEM-1024 + X25519). Ein Post-Quanten-Ratchet und eine Wesolowski-VDF existieren als getestete Bausteine im Rechenmodul, werden in der App aber noch nirgends verwendet. Zeitmessungen (dudect, 1.000.000 Messungen pro Operation) blieben für X25519, ML-KEM-1024, Vergleich in konstanter Zeit, PRF zu HKDF und AES-256-GCM unter |t| = 4,5; OPAQUE, der Ratchet und die VDF sind noch nicht gemessen. Eine bestandene Messung ist ein statistischer Beleg, keine Garantie.

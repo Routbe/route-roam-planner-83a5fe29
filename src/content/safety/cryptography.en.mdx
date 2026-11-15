@@ -1,0 +1,39 @@
+---
+title: "Cryptography"
+description: "Browser keys, RSA-OAEP and AES-GCM, encrypted bookings with ML-KEM-1024 + X25519, and the honest limits of post-quantum readiness."
+category: "safety"
+last_updated: "2026-11-15"
+ai_ready: true
+---
+
+# Cryptography
+
+## Two kinds of audit data
+
+The opt-in encrypted ledger is not the same table as the disclosure hash chain. The ledger stores encrypted payloads; disclosure entries use `entry_hash` and `previous_hash`. The protected audit head belongs to the disclosure chain.
+
+## Envelope encryption
+
+Keys are generated in the browser. RSA-OAEP with 3072-bit keys protects the envelope; AES-256-GCM protects event payloads with random IVs and authenticated key identifiers. The server stores public keys and ciphertext/encrypted envelopes, never an unencrypted private key.
+
+<Callout type="warning" title="No blind sign-in protocol">An OIDC redirect and token issuance remain visible on the server. Storage encryption does not make ROUT blind to the traffic it processes.</Callout>
+
+## Encrypted bookings
+
+For a booking through a booking page, and for the short request form on a profile card, the guest's browser encrypts name, email, note and answers in the crypto worker as an RVE1 envelope for the booking key of each host: ML-KEM-1024 + X25519, padded to 1, 4 or 16 KiB and bound to host and booking. The server only checks the shape of the envelope, stores the ciphertext and refuses requests with unencrypted guest fields. A request through the short form is stored as an envelope next to the host key in the Scaleway client bucket; the database only receives fixed placeholders, the preferred date and time. ROUT does not email the guest: the host replies from Studio. The secret part of the host key is sealed with AES-256-GCM under the host's master key in the Scaleway client bucket and is only opened in the worker on the host's device.
+
+<Callout type="warning" title="Limits">The server supplies the public host key; a malicious server could serve a different key, as with any encryption in a web browser. Time, meeting type, time zone and status stay readable. Requests that arrived through the short form before November 2026 remain stored unencrypted. A live booking or request with this encryption has not been confirmed yet.</Callout>
+
+## Key loss and recovery
+
+Losing a key must not lock the ROUT account. Older ledger content may stay unreadable without a usable key. Real WebAuthn PRF and threshold recovery have not been proven live; this text does not promise a finished recovery protocol.
+
+## Hash chain and audit head
+
+The preparatory audit-head migration attaches an AFTER INSERT trigger to `users.latest_audit_hash`. The entry and the head update fall in the same PostgreSQL transaction. The verifier reads the rows and the head in one snapshot. Tail deletion can thus be detected within the database permission boundary. This does not protect against an owner-level rollback of the whole database.
+
+## Post-quantum readiness
+
+JWKS keeps ES256. Hybrid/post-quantum signing is currently disabled. RSA-OAEP and ES256 are not post-quantum secure algorithms; modularity is not a cryptographic guarantee. Blinded tokens remain a separate future SDK track.
+
+What is hybrid (classical + post-quantum) is the encryption of guest details in bookings (ML-KEM-1024 + X25519). A post-quantum ratchet and a Wesolowski VDF exist as tested building blocks in the computation module, but are not used anywhere in the app yet. Timing measurements (dudect, 1,000,000 measurements per operation) stayed below |t| = 4.5 for X25519, ML-KEM-1024, constant-time comparison, PRF to HKDF and AES-256-GCM; OPAQUE, the ratchet and the VDF have not been measured yet. A passed measurement is statistical evidence, not a guarantee.
