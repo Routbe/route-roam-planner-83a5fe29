@@ -540,8 +540,9 @@ impl Form {
         let (u2, v2, w2) = (&f2.a, &f2.b, &f2.c);
         let s = v1.add(v2)?.half()?;
         let m = v2.sub(&s)?;
-        // F = gcd(u2, u1) with b * u2 = F (mod u1).
+        // F = gcd(u2, u1) = b * u2 + c * u1.
         let (f, b) = xgcd(u2, u1)?;
+        let c = f.sub(&b.mul(u2)?)?.exact(u1)?;
         let (g, bx_full, by_full, cy_big, dy_big);
         if s.modp(&f)?.is_zero() {
             g = f;
@@ -556,7 +557,7 @@ impl Form {
             by_full = u1.exact(&gg)?;
             cy_big = u2.exact(&gg)?;
             dy_big = s.exact(&gg)?;
-            let l = y.mul(&b.mul(&w1.modp(&h)?)?.add(&w2.modp(&h)?)?)?.modp(&h)?;
+            let l = y.mul(&b.mul(&w1.modp(&h)?)?.add(&c.mul(&w2.modp(&h)?)?)?)?.modp(&h)?;
             bx_full = b.mul(&m.exact(&h)?)?.add(&l.mul(&by_full.exact(&h)?)?)?;
             g = gg;
         }
