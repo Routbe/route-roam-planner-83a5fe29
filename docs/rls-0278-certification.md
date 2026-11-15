@@ -1,6 +1,6 @@
-# Z3 certification — db-pending/0278_zk_inquiries_and_rve1_payloads.sql
+# Z3 certification — 0278_zk_inquiries_and_rve1_payloads.sql
 
-Run: 2026-11-15T18:35:34.451Z · offline PGlite replay of db/ + db-pending/0278 · Neon not contacted
+Run: 2026-11-15T18:47:31.570Z · offline PGlite replay of db/ (0278 included) · Neon not contacted
 
 - Obligations: 1225, Z3 checks: 547
 - proven (unsat): 1185 · declassified (reviewed): 10 · service boundary: 30 · unproven: 0
@@ -13,5 +13,5 @@ Run: 2026-11-15T18:35:34.451Z · offline PGlite replay of db/ + db-pending/0278 
 **Result: CERTIFIED**
 
 
-Certification is a precondition for 0278, not a GO: 0278 stays in db-pending/ until the owner gives a
-separate GO; the code using it fails closed ("unavailable") until the migration is applied.
+0278 was applied on Neon on 2026-11-15 (owner's GO, scripts/migration-rollout.ts, sha256 508850f1…) and lives in db/.
+The Z3 model covers row visibility under the policies; table write grants are checked separately (see db-pending/0279).

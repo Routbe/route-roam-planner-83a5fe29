@@ -43,9 +43,9 @@ const certified = fresh.length === 0 && count("unproven") === 0 && report.unused
   && report.searchPath.findings.length === 0 && uncovered.length === 0;
 
 const md = [
-  `# Z3 certification — db-pending/${FILE}`,
+  `# Z3 certification — ${FILE}`,
   "",
-  `Run: ${new Date().toISOString()} · offline PGlite replay of db/ + db-pending/0278 · Neon not contacted`,
+  `Run: ${new Date().toISOString()} · offline PGlite replay of db/${existsSync(join(ROOT, "db", FILE)) ? " (0278 included)" : " + db-pending/0278"} · Neon not contacted`,
   "",
   `- Obligations: ${report.obligations.length}, Z3 checks: ${report.smtChecks}`,
   `- proven (unsat): ${count("proven")} · declassified (reviewed): ${count("declassified")} · service boundary: ${count("service_boundary")} · unproven: ${count("unproven")}`,
@@ -58,8 +58,8 @@ const md = [
   ...fresh.map((f) => `- ${f.id}: ${f.detail}`),
   ...uncovered.map((c) => `- ${c.table}: no proven obligation`),
   "",
-  "Certification is a precondition for 0278, not a GO: 0278 stays in db-pending/ until the owner gives a",
-  "separate GO; the code using it fails closed (\"unavailable\") until the migration is applied.",
+  "0278 was applied on Neon on 2026-11-15 (owner's GO, scripts/migration-rollout.ts, sha256 508850f1…) and lives in db/.",
+  "The Z3 model covers row visibility under the policies; table write grants are checked separately (see db-pending/0279).",
 ];
 writeFileSync(join(ROOT, "docs", "rls-0278-certification.md"), md.join("\n") + "\n");
 console.log(md.slice(4, 14).join("\n"));

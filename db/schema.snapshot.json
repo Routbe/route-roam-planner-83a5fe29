@@ -5679,6 +5679,282 @@
     },
     {
       "schema": "public",
+      "name": "booking_host_keys",
+      "columns": [
+        {
+          "name": "host_user_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "host_ref",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "kid",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "public_key",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "sealed_seed",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "key_id",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "notNull": true,
+          "default": "now()",
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "notNull": true,
+          "default": "now()",
+          "identity": null,
+          "generated": null
+        }
+      ],
+      "constraints": [
+        {
+          "name": "booking_host_keys_host_ref_key",
+          "kind": "u",
+          "def": "UNIQUE (host_ref)"
+        },
+        {
+          "name": "booking_host_keys_host_user_id_fkey",
+          "kind": "f",
+          "def": "FOREIGN KEY (host_user_id) REFERENCES users(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "booking_host_keys_key_id_check",
+          "kind": "c",
+          "def": "CHECK (((length(key_id) >= 1) AND (length(key_id) <= 200)))"
+        },
+        {
+          "name": "booking_host_keys_kid_check",
+          "kind": "c",
+          "def": "CHECK ((kid ~ '^[A-Za-z0-9_-]{22}$'::text))"
+        },
+        {
+          "name": "booking_host_keys_pkey",
+          "kind": "p",
+          "def": "PRIMARY KEY (host_user_id)"
+        },
+        {
+          "name": "booking_host_keys_public_key_check",
+          "kind": "c",
+          "def": "CHECK (((public_key ~ '^[A-Za-z0-9_-]+$'::text) AND (length(public_key) = 2134)))"
+        },
+        {
+          "name": "booking_host_keys_sealed_seed_check",
+          "kind": "c",
+          "def": "CHECK ((sealed_seed ~ '^v1\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{64}$'::text))"
+        }
+      ],
+      "indexes": [],
+      "triggers": [],
+      "rls": true,
+      "forceRls": false,
+      "policies": [
+        {
+          "name": "booking_host_keys_owner_read",
+          "permissive": true,
+          "roles": [
+            "rout_app"
+          ],
+          "cmd": "SELECT",
+          "using": "(host_user_id = ( SELECT rout_current_user_id() AS rout_current_user_id))",
+          "check": null
+        }
+      ],
+      "grants": {
+        "rout_app": [
+          "SELECT"
+        ]
+      }
+    },
+    {
+      "schema": "public",
+      "name": "booking_payloads",
+      "columns": [
+        {
+          "name": "booking_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "host_user_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "payload_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "host_ref",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "encrypted_rve1_payload",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "blake3_payload_hash",
+          "type": "bytea",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "pow_nonce",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "epoch_bucket",
+          "type": "integer",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "notNull": true,
+          "default": "now()",
+          "identity": null,
+          "generated": null
+        }
+      ],
+      "constraints": [
+        {
+          "name": "booking_payloads_blake3_payload_hash_check",
+          "kind": "c",
+          "def": "CHECK ((octet_length(blake3_payload_hash) = 32))"
+        },
+        {
+          "name": "booking_payloads_blake3_payload_hash_key",
+          "kind": "u",
+          "def": "UNIQUE (blake3_payload_hash)"
+        },
+        {
+          "name": "booking_payloads_booking_id_fkey",
+          "kind": "f",
+          "def": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "booking_payloads_encrypted_rve1_payload_check",
+          "kind": "c",
+          "def": "CHECK (((encrypted_rve1_payload ~ '^[A-Za-z0-9_-]+$'::text) AND (length(encrypted_rve1_payload) = ANY (ARRAY[3583, 7679, 24063])) AND (\"left\"(encrypted_rve1_payload, 8) = 'UlZFMQEF'::text)))"
+        },
+        {
+          "name": "booking_payloads_epoch_bucket_check",
+          "kind": "c",
+          "def": "CHECK ((epoch_bucket > 0))"
+        },
+        {
+          "name": "booking_payloads_host_user_id_fkey",
+          "kind": "f",
+          "def": "FOREIGN KEY (host_user_id) REFERENCES users(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "booking_payloads_payload_id_host_user_id_key",
+          "kind": "u",
+          "def": "UNIQUE (payload_id, host_user_id)"
+        },
+        {
+          "name": "booking_payloads_pkey",
+          "kind": "p",
+          "def": "PRIMARY KEY (booking_id)"
+        },
+        {
+          "name": "booking_payloads_pow_nonce_check",
+          "kind": "c",
+          "def": "CHECK ((pow_nonce ~ '^[0-9a-f]{16}$'::text))"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX booking_payloads_host_idx ON public.booking_payloads USING btree (host_user_id)"
+      ],
+      "triggers": [],
+      "rls": true,
+      "forceRls": false,
+      "policies": [
+        {
+          "name": "booking_payloads_host_read",
+          "permissive": true,
+          "roles": [
+            "rout_app"
+          ],
+          "cmd": "SELECT",
+          "using": "(host_user_id = ( SELECT rout_current_user_id() AS rout_current_user_id))",
+          "check": null
+        }
+      ],
+      "grants": {
+        "rout_app": [
+          "SELECT"
+        ]
+      }
+    },
+    {
+      "schema": "public",
       "name": "booking_requests",
       "columns": [
         {
@@ -10769,6 +11045,217 @@
           "INSERT",
           "SELECT",
           "UPDATE"
+        ]
+      }
+    },
+    {
+      "schema": "public",
+      "name": "inquiries",
+      "columns": [
+        {
+          "name": "id",
+          "type": "uuid",
+          "notNull": true,
+          "default": "gen_random_uuid()",
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "host_user_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "payload_id",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "host_ref",
+          "type": "uuid",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "preferred_date",
+          "type": "date",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "preferred_time",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "duration_minutes",
+          "type": "integer",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "notNull": false,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "status",
+          "type": "text",
+          "notNull": true,
+          "default": "'pending'::text",
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "encrypted_rve1_payload",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "blake3_payload_hash",
+          "type": "bytea",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "pow_nonce",
+          "type": "text",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "epoch_bucket",
+          "type": "integer",
+          "notNull": true,
+          "default": null,
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "notNull": true,
+          "default": "now()",
+          "identity": null,
+          "generated": null
+        },
+        {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "notNull": false,
+          "default": null,
+          "identity": null,
+          "generated": null
+        }
+      ],
+      "constraints": [
+        {
+          "name": "inquiries_blake3_payload_hash_check",
+          "kind": "c",
+          "def": "CHECK ((octet_length(blake3_payload_hash) = 32))"
+        },
+        {
+          "name": "inquiries_blake3_payload_hash_key",
+          "kind": "u",
+          "def": "UNIQUE (blake3_payload_hash)"
+        },
+        {
+          "name": "inquiries_duration_minutes_check",
+          "kind": "c",
+          "def": "CHECK (((duration_minutes >= 5) AND (duration_minutes <= 1440)))"
+        },
+        {
+          "name": "inquiries_encrypted_rve1_payload_check",
+          "kind": "c",
+          "def": "CHECK (((encrypted_rve1_payload ~ '^[A-Za-z0-9_-]+$'::text) AND (length(encrypted_rve1_payload) = ANY (ARRAY[3583, 7679, 24063])) AND (\"left\"(encrypted_rve1_payload, 8) = 'UlZFMQEF'::text)))"
+        },
+        {
+          "name": "inquiries_epoch_bucket_check",
+          "kind": "c",
+          "def": "CHECK ((epoch_bucket > 0))"
+        },
+        {
+          "name": "inquiries_host_user_id_fkey",
+          "kind": "f",
+          "def": "FOREIGN KEY (host_user_id) REFERENCES users(id) ON DELETE CASCADE"
+        },
+        {
+          "name": "inquiries_payload_id_key",
+          "kind": "u",
+          "def": "UNIQUE (payload_id)"
+        },
+        {
+          "name": "inquiries_pkey",
+          "kind": "p",
+          "def": "PRIMARY KEY (id)"
+        },
+        {
+          "name": "inquiries_pow_nonce_check",
+          "kind": "c",
+          "def": "CHECK ((pow_nonce ~ '^[0-9a-f]{16}$'::text))"
+        },
+        {
+          "name": "inquiries_preferred_time_check",
+          "kind": "c",
+          "def": "CHECK ((preferred_time ~ '^[0-9]{2}:[0-9]{2}$'::text))"
+        },
+        {
+          "name": "inquiries_status_check",
+          "kind": "c",
+          "def": "CHECK ((status = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text])))"
+        },
+        {
+          "name": "inquiries_title_check",
+          "kind": "c",
+          "def": "CHECK (((title IS NULL) OR (length(title) <= 200)))"
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX inquiries_host_idx ON public.inquiries USING btree (host_user_id, created_at DESC)"
+      ],
+      "triggers": [],
+      "rls": true,
+      "forceRls": false,
+      "policies": [
+        {
+          "name": "inquiries_host_read",
+          "permissive": true,
+          "roles": [
+            "rout_app"
+          ],
+          "cmd": "SELECT",
+          "using": "(host_user_id = ( SELECT rout_current_user_id() AS rout_current_user_id))",
+          "check": null
+        }
+      ],
+      "grants": {
+        "rout_app": [
+          "SELECT"
         ]
       }
     },
@@ -31478,6 +31965,12 @@
     },
     {
       "schema": "public",
+      "name": "rout_booking_create_sealed",
+      "args": "p_event_type uuid, p_start timestamp with time zone, p_guest_timezone text, p_payload_id uuid, p_copies jsonb, p_pow_nonce text, p_epoch integer, p_hold uuid, p_hold_secret text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_booking_create_sealed(p_event_type uuid, p_start timestamp with time zone, p_guest_timezone text, p_payload_id uuid, p_copies jsonb, p_pow_nonce text, p_epoch integer, p_hold uuid, p_hold_secret text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare\n  v_hosts integer; v_bound integer; v_n integer; r jsonb; i integer; v_bid uuid; v_host uuid; v_ref uuid; c jsonb;\nbegin\n  if p_event_type is null or p_payload_id is null or p_copies is null or pg_catalog.jsonb_typeof(p_copies) <> 'array'\n     or p_pow_nonce is null or p_pow_nonce !~ '^[0-9a-f]{16}$' then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'invalid_intake');\n  end if;\n  v_n := pg_catalog.jsonb_array_length(p_copies);\n  if v_n not between 1 and 8 then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'invalid_intake'); end if;\n  for c in select e from pg_catalog.jsonb_array_elements(p_copies) e loop\n    if pg_catalog.jsonb_typeof(c) <> 'object' or coalesce(c->>'ref', '') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'\n       or not public.rout_sealed_envelope_ok(c->>'envelope') or coalesce(c->>'hash', '') !~ '^[0-9a-f]{64}$' then\n      return pg_catalog.jsonb_build_object('ok', false, 'reason', 'invalid_intake');\n    end if;\n  end loop;\n  if not public.rout_sealed_epoch_ok(p_epoch) then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'pow_stale'); end if;\n  if not public.rout_booking_type_public(p_event_type) then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'inactive'); end if;\n\n  select pg_catalog.count(*) into v_hosts from public.booking_event_type_hosts h where h.event_type_id = p_event_type;\n  select pg_catalog.count(distinct h.user_id) into v_bound\n    from public.booking_event_type_hosts h join public.booking_host_keys k on k.host_user_id = h.user_id\n   where h.event_type_id = p_event_type\n     and exists (select 1 from pg_catalog.jsonb_array_elements(p_copies) e where (e->>'ref')::uuid = k.host_ref);\n  if v_hosts = 0 or v_bound <> v_hosts or v_n <> v_hosts then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'host_key_missing');\n  end if;\n\n  r := public.rout_booking_create(p_event_type, p_start, 'RVE1', p_payload_id::text || '@sealed.invalid',\n    p_guest_timezone, null, pg_catalog.jsonb_build_object('v', 3, 'pid', p_payload_id), p_hold, p_hold_secret);\n  if not coalesce((r->>'ok')::boolean, false) then return r; end if;\n\n  for i in 0 .. pg_catalog.jsonb_array_length(r->'bookingIds') - 1 loop\n    v_bid := (r->'bookingIds'->>i)::uuid;\n    v_host := (r->'hostIds'->>i)::uuid;\n    select k.host_ref into v_ref from public.booking_host_keys k where k.host_user_id = v_host;\n    select e into c from pg_catalog.jsonb_array_elements(p_copies) e where (e->>'ref')::uuid = v_ref;\n    if c is null then raise exception 'sealed copy missing' using errcode = 'P0001'; end if;\n    insert into public.booking_payloads (booking_id, host_user_id, payload_id, host_ref, encrypted_rve1_payload,\n      blake3_payload_hash, pow_nonce, epoch_bucket)\n    values (v_bid, v_host, p_payload_id, v_ref, c->>'envelope', pg_catalog.decode(c->>'hash', 'hex'), p_pow_nonce, p_epoch);\n  end loop;\n  return r;\nend $function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_booking_due_calendars",
       "args": "p_limit integer",
       "def": "CREATE OR REPLACE FUNCTION public.rout_booking_due_calendars(p_limit integer)\n RETURNS TABLE(id uuid, user_id uuid)\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select c.id, c.user_id from public.connected_calendars c\n  where c.adapter in ('ics','caldav') and c.sync_status <> 'disconnected'\n    and (c.last_synced_at is null or c.last_synced_at < now() - interval '10 minutes')\n  order by c.last_synced_at nulls first limit least(greatest(p_limit, 1), 100)\n$function$"
@@ -31487,6 +31980,12 @@
       "name": "rout_booking_edge_busy",
       "args": "p_host uuid, p_from timestamp with time zone, p_to timestamp with time zone",
       "def": "CREATE OR REPLACE FUNCTION public.rout_booking_edge_busy(p_host uuid, p_from timestamp with time zone, p_to timestamp with time zone)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select not public.rout_booking_cache_free(p_host, p_from, p_to)\n    or exists (select 1 from public.bookings b where b.host_user_id = p_host\n      and b.status in ('held','pending_payment','requested','confirmed')\n      and tstzrange(b.block_start_utc, b.block_end_utc, '[)') && tstzrange(p_from, p_to, '[)'))\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_booking_event_host_keys",
+      "args": "p_event_type uuid",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_booking_event_host_keys(p_event_type uuid)\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select case when public.rout_booking_type_public(p_event_type) then pg_catalog.jsonb_build_object(\n    'hosts', (select pg_catalog.count(*) from public.booking_event_type_hosts h where h.event_type_id = p_event_type),\n    'keys', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('ref', k.host_ref, 'kid', k.kid, 'publicKey', k.public_key) order by k.host_ref)\n       from public.booking_event_type_hosts h join public.booking_host_keys k on k.host_user_id = h.user_id\n      where h.event_type_id = p_event_type), '[]'::jsonb))\n  else pg_catalog.jsonb_build_object('hosts', 0, 'keys', '[]'::jsonb) end\n$function$"
     },
     {
       "schema": "public",
@@ -31532,6 +32031,12 @@
     },
     {
       "schema": "public",
+      "name": "rout_booking_host_key_publish",
+      "args": "p_host_ref uuid, p_kid text, p_public_key text, p_sealed_seed text, p_key_id text, p_replace boolean",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_booking_host_key_publish(p_host_ref uuid, p_kid text, p_public_key text, p_sealed_seed text, p_key_id text, p_replace boolean)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare v_uid uuid := public.rout_current_user_id(); v_kid text;\nbegin\n  if v_uid is null then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'input'); end if;\n  if p_host_ref is null or p_kid is null or p_kid !~ '^[A-Za-z0-9_-]{22}$'\n     or p_public_key is null or p_public_key !~ '^[A-Za-z0-9_-]+$' or pg_catalog.length(p_public_key) <> 2134\n     or p_sealed_seed is null or p_sealed_seed !~ '^v1\\.[A-Za-z0-9_-]{16}\\.[A-Za-z0-9_-]{64}$'\n     or p_key_id is null or pg_catalog.length(p_key_id) not between 1 and 200 then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'input');\n  end if;\n  select k.kid into v_kid from public.booking_host_keys k where k.host_user_id = v_uid for update;\n  if v_kid = p_kid then return pg_catalog.jsonb_build_object('ok', true, 'kid', p_kid); end if;\n  if v_kid is not null and not coalesce(p_replace, false) then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'exists');\n  end if;\n  begin\n    insert into public.booking_host_keys (host_user_id, host_ref, kid, public_key, sealed_seed, key_id)\n    values (v_uid, p_host_ref, p_kid, p_public_key, p_sealed_seed, p_key_id)\n    on conflict (host_user_id) do update\n      set host_ref = excluded.host_ref, kid = excluded.kid, public_key = excluded.public_key,\n          sealed_seed = excluded.sealed_seed, key_id = excluded.key_id, updated_at = pg_catalog.now();\n  exception when unique_violation then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'input');\n  end;\n  return pg_catalog.jsonb_build_object('ok', true, 'kid', p_kid);\nend $function$"
+    },
+    {
+      "schema": "public",
       "name": "rout_booking_lock_hosts",
       "args": "p_hosts uuid[], p_from timestamp with time zone, p_to timestamp with time zone",
       "def": "CREATE OR REPLACE FUNCTION public.rout_booking_lock_hosts(p_hosts uuid[], p_from timestamp with time zone, p_to timestamp with time zone)\n RETURNS void\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare h uuid; d date;\nbegin\n  for h in select x from unnest(p_hosts) x group by x order by x loop\n    d := (p_from at time zone 'utc')::date;\n    while d <= ((p_to - interval '1 microsecond') at time zone 'utc')::date loop\n      perform pg_advisory_xact_lock(hashtextextended('booking:' || h::text || ':' || d::text, 0));\n      d := d + 1;\n    end loop;\n  end loop;\nend $function$"
@@ -31547,6 +32052,12 @@
       "name": "rout_booking_pick_hosts",
       "args": "p_event_type uuid, p_start timestamp with time zone, p_hold uuid",
       "def": "CREATE OR REPLACE FUNCTION public.rout_booking_pick_hosts(p_event_type uuid, p_start timestamp with time zone, p_hold uuid)\n RETURNS uuid[]\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare\n  t public.booking_event_types%rowtype; bs timestamptz; be timestamptz; cap integer;\n  hosts uuid[]; candidates uuid[]; h uuid;\nbegin\n  select * into t from public.booking_event_types where id = p_event_type;\n  bs := p_start - make_interval(mins => t.buffer_before_minutes);\n  be := p_start + make_interval(mins => t.duration_minutes + t.buffer_after_minutes);\n  cap := greatest(1, t.resource_capacity);\n  if t.routing_strategy = 'COLLECTIVE' then\n    select array_agg(user_id order by user_id) into hosts from public.booking_event_type_hosts where event_type_id = t.id;\n    foreach h in array hosts loop\n      if not (public.rout_booking_host_free_held(h, t.id, p_start, bs, be, cap, p_hold)\n          and public.rout_booking_within_limits(t.id, h, p_start, p_hold)\n          and (not t.adjacent_only or public.rout_booking_adjacent_ok(h, bs, be))) then\n        return null;\n      end if;\n    end loop;\n    return hosts;\n  end if;\n  select array_agg(x.user_id order by x.load, x.priority desc, x.user_id) into candidates from (\n    select h2.user_id, h2.priority,\n      case when t.routing_strategy = 'ROUND_ROBIN' then coalesce((\n        select sum(extract(epoch from (b.end_utc - b.start_utc)) / 60) from public.bookings b\n        where b.host_user_id = h2.user_id and b.status in ('held','pending_payment','requested','confirmed')\n          and b.start_utc >= p_start - interval '30 days' and b.start_utc < p_start + interval '30 days'), 0) else 0 end as load\n    from public.booking_event_type_hosts h2 where h2.event_type_id = t.id) x;\n  if t.routing_strategy = 'STRICT' then candidates := candidates[1:1]; end if;\n  foreach h in array coalesce(candidates, '{}') loop\n    if public.rout_booking_host_free_held(h, t.id, p_start, bs, be, cap, p_hold)\n        and public.rout_booking_within_limits(t.id, h, p_start, p_hold)\n        and (not t.adjacent_only or public.rout_booking_adjacent_ok(h, bs, be)) then\n      return array[h];\n    end if;\n  end loop;\n  return null;\nend $function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_booking_profile_host_key",
+      "args": "p_profile uuid",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_booking_profile_host_key(p_profile uuid)\n RETURNS jsonb\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select pg_catalog.jsonb_build_object('ref', k.host_ref, 'kid', k.kid, 'publicKey', k.public_key)\n    from public.booking_host_keys k\n   where k.host_user_id = p_profile\n     and exists (\n       select 1 from public.profiles p\n        cross join lateral pg_catalog.jsonb_array_elements(case when pg_catalog.jsonb_typeof(p.blocks) = 'array' then p.blocks else '[]'::jsonb end) b(el)\n        where p.id = p_profile and b.el->>'kind' = 'booking_request'\n          and coalesce(b.el->'hidden', 'false'::jsonb) <> 'true'::jsonb)\n$function$"
     },
     {
       "schema": "public",
@@ -31907,6 +32418,18 @@
       "name": "rout_ingest_token_owner",
       "args": "p_hash text",
       "def": "CREATE OR REPLACE FUNCTION public.rout_ingest_token_owner(p_hash text)\n RETURNS uuid\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select user_id from public.omni_ingest_tokens where token_hash = p_hash\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_inquiry_create_sealed",
+      "args": "p_profile uuid, p_payload_id uuid, p_host_ref uuid, p_date date, p_time text, p_duration integer, p_title text, p_envelope text, p_hash bytea, p_pow_nonce text, p_epoch integer",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_inquiry_create_sealed(p_profile uuid, p_payload_id uuid, p_host_ref uuid, p_date date, p_time text, p_duration integer, p_title text, p_envelope text, p_hash bytea, p_pow_nonce text, p_epoch integer)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare v_id uuid;\nbegin\n  if p_profile is null or p_payload_id is null or p_host_ref is null or p_date is null\n     or p_time is null or p_time !~ '^[0-9]{2}:[0-9]{2}$'\n     or p_duration is null or p_duration not between 5 and 1440 or coalesce(pg_catalog.length(p_title), 0) > 200\n     or not public.rout_sealed_envelope_ok(p_envelope)\n     or p_hash is null or pg_catalog.octet_length(p_hash) <> 32\n     or p_pow_nonce is null or p_pow_nonce !~ '^[0-9a-f]{16}$' then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'invalid');\n  end if;\n  if not public.rout_sealed_epoch_ok(p_epoch) then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'pow_stale'); end if;\n  if p_date < (pg_catalog.now() - interval '1 day')::date then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'past_date'); end if;\n  if public.rout_booking_profile_host_key(p_profile) is null then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'unavailable');\n  end if;\n  if not exists (select 1 from public.booking_host_keys k where k.host_user_id = p_profile and k.host_ref = p_host_ref) then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'invalid');\n  end if;\n  -- Flood ceiling per host on top of the proof-of-work.\n  if (select pg_catalog.count(*) from public.inquiries i\n       where i.host_user_id = p_profile and i.created_at > pg_catalog.now() - interval '1 hour') >= 60 then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'rate_limited');\n  end if;\n  begin\n    insert into public.inquiries (host_user_id, payload_id, host_ref, preferred_date, preferred_time, duration_minutes,\n      title, encrypted_rve1_payload, blake3_payload_hash, pow_nonce, epoch_bucket)\n    values (p_profile, p_payload_id, p_host_ref, p_date, p_time, p_duration, nullif(p_title, ''), p_envelope, p_hash,\n      p_pow_nonce, p_epoch)\n    returning id into v_id;\n  exception when unique_violation then\n    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'duplicate');\n  end;\n  return pg_catalog.jsonb_build_object('ok', true, 'id', v_id);\nend $function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_inquiry_resolve",
+      "args": "p_id uuid, p_action text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_inquiry_resolve(p_id uuid, p_action text)\n RETURNS boolean\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare v_uid uuid := public.rout_current_user_id();\nbegin\n  if v_uid is null or p_id is null or p_action is null or p_action not in ('accept', 'decline') then return false; end if;\n  update public.inquiries i\n     set status = case when p_action = 'accept' then 'accepted' else 'declined' end, resolved_at = pg_catalog.now()\n   where i.id = p_id and i.host_user_id = v_uid and i.status = 'pending';\n  return found;\nend $function$"
     },
     {
       "schema": "public",
@@ -32759,6 +33282,18 @@
       "name": "rout_reviewer_admin_id",
       "args": "",
       "def": "CREATE OR REPLACE FUNCTION public.rout_reviewer_admin_id()\n RETURNS uuid\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select r.user_id from public.user_roles r where r.role::text = 'admin' order by r.user_id limit 1\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_sealed_envelope_ok",
+      "args": "p text",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_sealed_envelope_ok(p text)\n RETURNS boolean\n LANGUAGE sql\n IMMUTABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select p is not null and p ~ '^[A-Za-z0-9_-]+$' and pg_catalog.length(p) in (3583, 7679, 24063)\n     and pg_catalog.left(p, 8) = 'UlZFMQEF'\n$function$"
+    },
+    {
+      "schema": "public",
+      "name": "rout_sealed_epoch_ok",
+      "args": "p integer",
+      "def": "CREATE OR REPLACE FUNCTION public.rout_sealed_epoch_ok(p integer)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\n  select p is not null\n     and pg_catalog.abs(p - pg_catalog.floor(pg_catalog.date_part('epoch', pg_catalog.now()) / 600)::integer) <= 1\n$function$"
     },
     {
       "schema": "public",
