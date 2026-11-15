@@ -754,3 +754,32 @@ Open (eigenaar): `bun scripts/tenant-backfill.ts --gateway` of `--url-env OWNER_
 - Bestaande drift, niet door 0278: `schema-snapshot --check` meldt nog `rout_pow_spend` (regeleinden), `sync_social_grid_draft`, de Neon-kolom `neon_auth.project_config.auth_logs_export_enabled` en schema-grants.
 - Productie (Vercel) draait nog code op 0277; 0278 is additief, dus die blijft werken. De nieuwe boekings- en aanvraagcode kan nu worden uitgerold.
 - Testcorrectie: twee lektests zochten "Ada" ook in willekeurige versleutelde tekst (±1% kans op toeval); de envelope wordt nu eerst weggelaten.
+
+## Bijlage: nul-drift na 0280 (2026-11-15 19:12 UTC, directief eigenaar)
+
+Alle vier verschillen van `schema-snapshot --check` zijn verklaard en opgelost; geen ervan veranderde gedrag.
+
+1. `rout_pow_spend` en 2. `sync_social_grid_draft`: op Neon dezelfde tokens als in db/ (vergeleken token voor token, ook string-literals), alleen met samengevoegde regeleinden. `db/0280_zero_drift_reconciliation.sql` maakt beide opnieuw met de exacte replay-tekst; grants ongewijzigd en expliciet herhaald. De triggerfunctie staat nu op `pg_catalog, pg_temp` in plaats van `pg_catalog, public` (regel vanaf 0255); haar body noemt elke tabel met `public.` en gebruikt alleen pg_catalog-functies. Getest in `src/test/migration-0280.test.ts` (kaarten worden nog geïndexeerd en verwijderd, PoW-hash blijft eenmalig).
+3. `neon_auth.project_config.auth_logs_export_enabled`: door Neon Auth zelf toegevoegd; de tabel is van de rol `neon_auth`, niet van `neondb_owner`. 0280 voegt de kolom alleen toe als ze ontbreekt (replay); op Neon is het een no-op en wordt Neons tabel niet aangeraakt.
+4. "schema grants differ": vals alarm. Beide kanten hadden dezelfde vier `rout_app USAGE`-grants in een andere volgorde. `scripts/schema-catalog.ts` sorteert nu de sleutels en meldt per schema wat verschilt (test in `schema-catalog.test.ts`).
+
+Uitrol: 0280 via `scripts/migration-rollout.ts` in één transactie (sha256 `6b28d9f2b8c002327f7f7b7d1b9b31c4bfd2088c1922a7da284b3a21d905132b`), `CODE_SCHEMA_LEVEL` = 0280.
+
+Na de uitrol, live met `OWNER_DATABASE_URL` (alleen lezen):
+- `schema-snapshot --check`: **0 verschillen** over het hele snapshot (public, neon_auth, auth, storage, vault_enclave).
+- `tenant-backfill --url-env OWNER_DATABASE_URL`: 51 controles, 0 afwijkingen. Vóór de uitrol meldde D2 één rij: een openstaande uitnodiging van 19:08 UTC, waarvan de genodigde natuurlijk nog geen lid is. `workspace_invites.invited_user_id` valt daarom niet meer onder D2 (`NOT_A_MEMBER`, test `tenant-backfill-checks.test.ts`); de controle op de uitnodiger blijft.
+- `migration-history-check` 0 afwijkingen; `security-definer-check` 432 definers, 0 afwijkingen.
+- `certify-0280.ts --url-env OWNER_DATABASE_URL` op de live catalogus: CERTIFIED, 1225 verplichtingen, 547 Z3-checks, 1185 bewezen, 10 gedeclassificeerd, 30 service-grens, 0 onbewezen; elk van de drie verzegelde tabellen 5/5 (`docs/rls-0280-certification.md`). Een `certify-0279.ts` bestaat niet; 0279 en 0280 vallen onder dit script.
+- `ANALYZE` uitgevoerd op `booking_host_keys`, `inquiries`, `booking_payloads` (nu 0 rijen).
+
+Indexen (live nagekeken, niets toegevoegd):
+- `blake3_payload_hash`: al uniek B-tree op `inquiries` en `booking_payloads` (de UNIQUE-constraint). Eenmaligheid van elk bewijs is daarmee al een indexzoekactie.
+- Host-lookups voor RLS: `inquiries (host_user_id, created_at desc)` dekt RLS, de Studio-lijst (`order by created_at desc limit 100`) en de floodgrens (60 per uur); `booking_payloads (host_user_id)`; `booking_host_keys` heeft `host_user_id` als primaire sleutel. Boekingen worden gelezen via de primaire sleutel `booking_id`.
+- `epoch_bucket + created_at`: bewust niet aangemaakt. Geen enkele query of functie filtert op `epoch_bucket`; de kolom wordt alleen geschreven. Een index zou elke schrijfactie duurder maken zonder één leesactie te versnellen.
+
+Rechten (nagekeken, niets ingetrokken):
+- Schema-niveau: `rout_app` heeft alleen USAGE op `public`, `auth`, `neon_auth`, `vault_enclave`; alle vier nodig (`auth.uid()` in `get_my_profile`, `has_role`, `get_my_account`; Better Auth in `neon_auth`; de vault-functies). Geen CREATE.
+- Tabelniveau: `rout_app` schrijft nog op ±100 tabellen; dat is de bestaande app-werking (0262 trok per tabel na wat overbodig was). Een algemene intrekking zou inloggen en opslaan breken; verdere intrekking alleen per tabel na nalezen van de code.
+- PUBLIC heeft EXECUTE op 265 functies in `public`: 253 SECURITY INVOKER (draaien met de rechten van de aanroeper, geven niets extra) en 12+2 triggerfuncties (niet rechtstreeks aanroepbaar). Niet gewijzigd.
+
+`OWNER_DATABASE_URL` staat op uitdrukkelijk verzoek van de eigenaar nog in de projectgeheimen.

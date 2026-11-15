@@ -98,6 +98,7 @@ export interface NeonAuthProjectConfigRow {
   "allow_localhost": boolean;
   "plugin_configs": JsonValue | null;
   "webhook_config": JsonValue | null;
+  "auth_logs_export_enabled": boolean | null;
 }
 
 export interface NeonAuthSessionRow {

@@ -878,6 +878,14 @@
           "default": null,
           "identity": null,
           "generated": null
+        },
+        {
+          "name": "auth_logs_export_enabled",
+          "type": "boolean",
+          "notNull": false,
+          "default": "false",
+          "identity": null,
+          "generated": null
         }
       ],
       "constraints": [
@@ -33695,7 +33703,7 @@
       "schema": "public",
       "name": "sync_social_grid_draft",
       "args": "",
-      "def": "CREATE OR REPLACE FUNCTION public.sync_social_grid_draft()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\ndeclare\n  b jsonb;\n  config jsonb;\n  item jsonb;\n  ordinal bigint;\n  kept uuid[] := '{}';\n  card_id uuid;\nbegin\n  for b in select value from jsonb_array_elements(coalesce(new.payload->'blocks','[]'::jsonb)) loop\n    if b->>'kind' <> 'social_grid' then continue; end if;\n    begin\n      config := (b->>'value')::jsonb;\n    exception when invalid_text_representation then\n      continue;\n    end;\n    if jsonb_typeof(config->'items') <> 'array' then continue; end if;\n    for item, ordinal in select value, ordinality from jsonb_array_elements(config->'items') with ordinality loop\n      if ordinal > 30 or coalesce(item->>'id','') = '' or coalesce(item->>'mediaUrl','') = '' then continue; end if;\n      insert into public.social_grid_items\n        (user_id, profile_space, block_id, source_item_id, platform, media_url, caption, target_url, is_pinned, is_video, position, created_at)\n      values (new.user_id, new.space, b->>'id', item->>'id',\n        case when item->>'platform' in ('instagram','tiktok','article','custom') then item->>'platform' else 'custom' end,\n        item->>'mediaUrl', coalesce(item->>'caption',''), nullif(item->>'targetUrl',''),\n        coalesce(item->'pinned' = 'true'::jsonb,false), coalesce(item->'isVideo' = 'true'::jsonb,false),\n        ordinal - 1, coalesce(nullif(item->>'createdAt','')::timestamptz, now()))\n      on conflict (user_id, profile_space, block_id, source_item_id) do update set\n        platform=excluded.platform, media_url=excluded.media_url, caption=excluded.caption,\n        target_url=excluded.target_url, is_pinned=excluded.is_pinned, is_video=excluded.is_video,\n        position=excluded.position\n      returning id into card_id;\n      kept := array_append(kept, card_id);\n    end loop;\n  end loop;\n  delete from public.social_grid_items\n    where user_id=new.user_id and profile_space=new.space and not (id = any(kept));\n  return new;\nend $function$"
+      "def": "CREATE OR REPLACE FUNCTION public.sync_social_grid_draft()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'pg_catalog', 'pg_temp'\nAS $function$\ndeclare\n  b jsonb;\n  config jsonb;\n  item jsonb;\n  ordinal bigint;\n  kept uuid[] := '{}';\n  card_id uuid;\nbegin\n  for b in select value from jsonb_array_elements(coalesce(new.payload->'blocks','[]'::jsonb)) loop\n    if b->>'kind' <> 'social_grid' then continue; end if;\n    begin\n      config := (b->>'value')::jsonb;\n    exception when invalid_text_representation then\n      continue;\n    end;\n    if jsonb_typeof(config->'items') <> 'array' then continue; end if;\n    for item, ordinal in select value, ordinality from jsonb_array_elements(config->'items') with ordinality loop\n      if ordinal > 30 or coalesce(item->>'id','') = '' or coalesce(item->>'mediaUrl','') = '' then continue; end if;\n      insert into public.social_grid_items\n        (user_id, profile_space, block_id, source_item_id, platform, media_url, caption, target_url, is_pinned, is_video, position, created_at)\n      values (new.user_id, new.space, b->>'id', item->>'id',\n        case when item->>'platform' in ('instagram','tiktok','article','custom') then item->>'platform' else 'custom' end,\n        item->>'mediaUrl', coalesce(item->>'caption',''), nullif(item->>'targetUrl',''),\n        coalesce(item->'pinned' = 'true'::jsonb,false), coalesce(item->'isVideo' = 'true'::jsonb,false),\n        ordinal - 1, coalesce(nullif(item->>'createdAt','')::timestamptz, now()))\n      on conflict (user_id, profile_space, block_id, source_item_id) do update set\n        platform=excluded.platform, media_url=excluded.media_url, caption=excluded.caption,\n        target_url=excluded.target_url, is_pinned=excluded.is_pinned, is_video=excluded.is_video,\n        position=excluded.position\n      returning id into card_id;\n      kept := array_append(kept, card_id);\n    end loop;\n  end loop;\n  delete from public.social_grid_items\n    where user_id=new.user_id and profile_space=new.space and not (id = any(kept));\n  return new;\nend $function$"
     },
     {
       "schema": "public",
@@ -34431,10 +34439,10 @@
     "neon_auth:rout_app": [
       "USAGE"
     ],
-    "vault_enclave:rout_app": [
+    "public:rout_app": [
       "USAGE"
     ],
-    "public:rout_app": [
+    "vault_enclave:rout_app": [
       "USAGE"
     ]
   }

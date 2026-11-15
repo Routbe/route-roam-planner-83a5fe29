@@ -285,3 +285,11 @@
 - [ ] Live aanvraag end-to-end bevestigen — wacht op een omgeving met Neon (DATABASE_URL) en Scaleway-clientopslag
 - [ ] Oude, onversleuteld bewaarde aanvragen opruimen of verzegelen — vraagt een besluit van de eigenaar (en eventueel een migratie)
 - [ ] Beheerlink voor de gast (status van de aanvraag) — vraagt een EXPAND-migratie; nu bevestigt alleen het scherm in de browser
+
+## Nul-drift (2026-11-15)
+- [x] 0280: rout_pow_spend + sync_social_grid_draft gelijk aan replay, Neon Auth-kolom gespiegeld (live op Neon, schemaniveau 0280)
+- [x] Vals alarm schema-grants (volgorde) opgelost in de vergelijking
+- [x] tenant-backfill: openstaande uitnodiging telt niet als afwijking (51 controles, 0 live)
+- [x] Live: schema-snapshot 0 verschillen, certify-0280 CERTIFIED op de live catalogus, ANALYZE op de drie verzegelde tabellen
+- [ ] Verdere intrekking van rout_app-tabelrechten: alleen per tabel na nalezen van de code (wacht op keuze eigenaar)
+- [ ] OWNER_DATABASE_URL verwijderen (wacht op eigenaar)
