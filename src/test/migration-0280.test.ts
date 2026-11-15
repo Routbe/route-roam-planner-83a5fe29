@@ -2,7 +2,8 @@
 /**
  * db/0280 on an offline replay of db/ without it. The Neon state before 0280 is recreated: both
  * functions with their line breaks collapsed (same tokens) and the Neon-managed column present.
- * 0280 must restore the exact replay text, keep behaviour and grants, and leave the column alone.
+ * 0280 must restore the exact replay text, keep behaviour and grants, and leave the column alone;
+ * the social-grid trigger must still index cards under its pinned search_path.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
@@ -40,6 +41,25 @@ describe("db/0280", () => {
     const publicAcl = await db.query("select 1 from pg_proc p, aclexplode(p.proacl) a where p.oid = $1::regprocedure and a.grantee = 0", [POW]);
     expect(publicAcl.rows).toHaveLength(0);
     expect(await can("rout_app", "public.sync_social_grid_draft()")).toBe(true);
+  });
+
+  it("still indexes social-grid cards from a profile draft under search_path pg_catalog, pg_temp", async () => {
+    const cfg = (await db.query<{ c: string[] }>("select proconfig as c from pg_proc where proname = 'sync_social_grid_draft'")).rows[0]!.c;
+    expect(cfg).toEqual(["search_path=pg_catalog, pg_temp"]);
+    const u = "00000000-0000-4000-8000-000000000280";
+    await db.query("insert into public.users (id, email) values ($1, 'grid@example.org')", [u]);
+    await db.query("insert into public.profiles (id, username) values ($1, 'grid0280')", [u]);
+    const block = (items: unknown[]) => JSON.stringify({ blocks: [{ id: "b1", kind: "social_grid", value: JSON.stringify({ items }) }] });
+    await db.query("insert into public.profile_drafts (user_id, space, payload) values ($1, 'verified', $2::jsonb)",
+      [u, block([{ id: "i1", mediaUrl: "https://e.org/1.jpg", platform: "instagram" }, { id: "i2", mediaUrl: "https://e.org/2.jpg", platform: "nope" }])]);
+    const rows = async () => (await db.query<{ source_item_id: string; platform: string; position: number }>(
+      "select source_item_id, platform, position from public.social_grid_items where user_id = $1 order by position", [u])).rows;
+    expect(await rows()).toEqual([
+      { source_item_id: "i1", platform: "instagram", position: 0 },
+      { source_item_id: "i2", platform: "custom", position: 1 },
+    ]);
+    await db.query("update public.profile_drafts set payload = $2::jsonb where user_id = $1", [u, block([{ id: "i2", mediaUrl: "https://e.org/2.jpg" }])]);
+    expect(await rows()).toEqual([{ source_item_id: "i2", platform: "custom", position: 0 }]);
   });
 
   it("keeps a proof-of-work hash single-use", async () => {

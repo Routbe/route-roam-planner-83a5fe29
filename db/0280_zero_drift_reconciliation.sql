@@ -3,10 +3,13 @@
 -- schema-snapshot --check listed four differences after 0279; none changes behaviour:
 -- 1. public.rout_pow_spend and 2. public.sync_social_grid_draft: the live bodies are the
 --    same token stream as db/ (0206/0184) with their line breaks collapsed when they were
---    first applied through the gateway. Each is re-created below with the exact text an
---    offline replay of db/ produces, so pg_proc.prosrc on Neon equals the replay byte for
---    byte. Header, owner, volatility, search_path and grants stay the same: CREATE OR
---    REPLACE keeps the ACL, and the rout_app grants are restated explicitly below.
+--    first applied through the gateway. Each is re-created below with the exact body text
+--    an offline replay of db/ produces, so pg_proc.prosrc on Neon equals the replay byte
+--    for byte. Owner, volatility and grants stay the same: CREATE OR REPLACE keeps the ACL,
+--    and the rout_app grants are restated explicitly below. The trigger function's
+--    search_path moves from pg_catalog, public to pg_catalog, pg_temp (the rule for every
+--    migration from 0255 on): its body names every table with public. and uses only
+--    pg_catalog functions and types, so nothing resolves differently.
 -- 3. neon_auth.project_config.auth_logs_export_enabled was added on Neon by Neon Auth
 --    itself (the table is owned by the neon_auth role, not by this database's owner). The
 --    replay adds the same column only when it is missing, so on Neon this is a no-op and
@@ -37,7 +40,7 @@ grant execute on function public.rout_pow_spend(text, text, timestamp with time 
 CREATE OR REPLACE FUNCTION public.sync_social_grid_draft()
  RETURNS trigger
  LANGUAGE plpgsql
- SET search_path TO 'pg_catalog', 'public'
+ SET search_path TO 'pg_catalog', 'pg_temp'
 AS $function$
 declare
   b jsonb;
