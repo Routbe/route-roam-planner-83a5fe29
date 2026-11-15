@@ -15,7 +15,7 @@ vi.mock("@/lib/neon", () => ({
 let legacyObject: Uint8Array | null = null;
 vi.mock("@/lib/storage/s3.server", () => ({
   storageConfigured: vi.fn(() => true),
-  getObject: vi.fn(async () => (legacyObject ? new Response(legacyObject) : new Response(null, { status: 404 }))),
+  getObject: vi.fn(async () => (legacyObject ? new Response(legacyObject as unknown as BodyInit) : new Response(null, { status: 404 }))),
   putObject: vi.fn(async () => { throw new Error("no object-storage writes allowed"); }),
 }));
 vi.mock("./sealed-schema.server", async (orig) => ({ ...(await orig<typeof import("./sealed-schema.server")>()), sealedSchemaReady: vi.fn(async () => true) }));
