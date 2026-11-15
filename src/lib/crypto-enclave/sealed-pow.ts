@@ -184,14 +184,20 @@ export function checkSealedPow(purpose: SealedPowPurpose, pid: string, copies: r
   if (!isEpochFresh(proof.epoch, nowMs)) return { ok: false, reason: "pow_stale" };
   const hashes = new Map<string, Uint8Array>();
   let binding: Uint8Array | null = null;
+  let accepted = false;
   try {
     for (const c of copies) hashes.set(c.ref, payloadHash(c.envelope));
+    // A Map silently merges duplicate refs; the copy count must survive intact.
+    if (hashes.size !== copies.length) return { ok: false, reason: "pow_invalid" };
     binding = sealedBinding(purpose, pid, [...hashes].map(([ref, hash]) => ({ ref, hash })));
     if (!verifySealedPow(binding, proof.epoch, proof.nonce, SEALED_POW_REQUIRED_BITS)) return { ok: false, reason: "pow_invalid" };
+    accepted = true;
     return { ok: true, hashes };
   } catch {
     return { ok: false, reason: "pow_invalid" };
   } finally {
     binding?.fill(0);
+    // Refused: nothing is handed back, so every hash is wiped here; accepted hashes are the caller's to wipe.
+    if (!accepted) for (const h of hashes.values()) h.fill(0);
   }
 }
