@@ -59,7 +59,7 @@ const md = [
   ...uncovered.map((c) => `- ${c.table}: no proven obligation`),
   "",
   "0278 was applied on Neon on 2026-11-15 (owner's GO, scripts/migration-rollout.ts, sha256 508850f1…) and lives in db/.",
-  "The Z3 model covers row visibility under the policies; table write grants are checked separately (see db-pending/0279).",
+  "The Z3 model covers row visibility under the policies; table write grants are closed by db/0279 (rout_app SELECT only).",
 ];
 writeFileSync(join(ROOT, "docs", "rls-0278-certification.md"), md.join("\n") + "\n");
 console.log(md.slice(4, 14).join("\n"));
