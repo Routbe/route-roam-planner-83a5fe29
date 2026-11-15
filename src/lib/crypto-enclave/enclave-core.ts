@@ -1094,8 +1094,9 @@ const coreHandlers: CoreHandlers = {
       return { ref, publicKey };
     });
     if (new Set(recipients.map((r) => r.ref)).size !== recipients.length) fail("invalid_input");
-    const purpose = pow === undefined || pow === null ? null : (pow as { purpose?: unknown }).purpose;
-    if (purpose !== null && purpose !== "booking" && purpose !== "inquiry") fail("invalid_input");
+    const rawPurpose: unknown = pow === undefined || pow === null ? null : (pow as { purpose?: unknown }).purpose;
+    if (rawPurpose !== null && rawPurpose !== "booking" && rawPurpose !== "inquiry") fail("invalid_input");
+    const purpose = rawPurpose as "booking" | "inquiry" | null;
     const payloadId = crypto.randomUUID();
     let sealed: { ref: string; envelope: Uint8Array }[];
     try {
