@@ -78,9 +78,6 @@ use the editor.
 ## Neon database access
 - The app runtime connects only through the DATABASE_URL secret (rout_app login); the owner-level Neon connection stays unlinked from the project and is used solely by the agent for reviewed schema work. Why: a linked NEON_API_KEY makes the gateway transport win over DATABASE_URL, so preview would diverge from the Vercel runtime.
 
-## Neon-managed objects
-- Objects Neon manages itself (tables owned by the neon_auth role) are mirrored in db/ only with conditional DDL that is a no-op on Neon (db/0280). Why: the replay snapshot must equal Neon without the app ever altering Neon Auth's own tables.
-
 ## Migration history
 - Every row in public.schema_migrations must match a file in db/ or an entry in scripts/migration-history-allowlist.ts carrying Neon's exact checksum; check with scripts/migration-history-check.ts and never rewrite Neon's rows. Why: history drift stays visible without falsifying what actually ran.
 - A migration redefining a CHECK keeps every value existing functions write, and its replay test runs each writer. Why: 0267 once dropped 'activation'.
