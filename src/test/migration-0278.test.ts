@@ -146,7 +146,7 @@ describe("db-pending/0278 on a replay of db/", () => {
     // While sealed ciphertext exists the rollback refuses: it would destroy the only copy.
     await expect(db.exec(`begin;\n${body}\n;commit;`)).rejects.toThrow(/rollback refused/);
     await db.exec("rollback");
-    await db.exec("delete from public.booking_payloads; delete from public.inquiries; delete from public.bookings where intake_answers->>'v' = '3'");
+    await db.exec("delete from public.booking_payloads; delete from public.inquiries; delete from public.booking_host_keys; delete from public.bookings where intake_answers->>'v' = '3'");
     await db.exec(`begin;\n${body}\n;commit;`);
     const left = await db.query<{ n: string }>(`select coalesce(to_regclass('public.inquiries')::text, '') ||
       coalesce(to_regclass('public.booking_payloads')::text, '') || coalesce(to_regclass('public.booking_host_keys')::text, '') as n`);
