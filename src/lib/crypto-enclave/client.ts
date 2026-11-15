@@ -354,8 +354,8 @@ export const enclave = {
   },
   /** Guest side: seals the booking form for every host key in the worker. */
   booking: {
-    seal: (hosts: { ref: string; publicKey: Uint8Array }[], payload: BookingPayload) =>
-      callEnclave("booking.seal", { hosts: hosts.map((h) => ({ ref: h.ref, publicKey: h.publicKey.slice() })), payload }),
+    seal: (hosts: { ref: string; publicKey: Uint8Array }[], payload: BookingPayload, pow?: { purpose: "booking" | "inquiry" }) =>
+      callEnclave("booking.seal", { hosts: hosts.map((h) => ({ ref: h.ref, publicKey: h.publicKey.slice() })), payload, ...(pow ? { pow } : {}) }),
   },
   hash: {
     sha256Hex: (text: string) => callEnclave("hash.sha256Hex", { text }),

@@ -5,6 +5,7 @@ import { runEnclaveOp } from "./enclave-core";
 import type { EnclaveOp, EnclaveOps } from "./protocol";
 import { b64uDecode, hostRefOf, type HostBookingKeyDoc } from "@/lib/booking-engine/sealed-booking";
 import { checkBookingKeyDoc } from "@/lib/booking-engine/host-booking-key.server";
+import { checkSealedPow } from "./sealed-pow";
 
 const HOST = "00000000-0000-4000-8000-0000000000d1";
 const OTHER = "00000000-0000-4000-8000-0000000000d2";
@@ -65,6 +66,19 @@ describe("host booking key and guest sealing inside the crypto worker (Fase 1)",
     await withDeviceKey(OTHER);
     expect(await code("bookingKey.ensure", { userId: OTHER, existing: doc })).toBe("key_mismatch");
     expect(await code("bookingKey.open", { userId: OTHER, doc, items: [] })).toBe("key_mismatch");
+  });
+
+  it("solves the proof-of-work over the exact sealed copies and wipes the host keys it was handed", async () => {
+    for (const purpose of ["booking", "inquiry"] as const) {
+      const host = keyOf(doc);
+      const sealed = await call("booking.seal", { hosts: [host], payload: { name: "Ada" }, pow: { purpose } });
+      expect(sealed.pow).not.toBeNull();
+      expect(checkSealedPow(purpose, sealed.payloadId, sealed.hosts, sealed.pow!, Date.now()).ok).toBe(true);
+      expect(checkSealedPow(purpose === "booking" ? "inquiry" : "booking", sealed.payloadId, sealed.hosts, sealed.pow!, Date.now()).ok).toBe(false);
+      expect(host.publicKey.every((b) => b === 0)).toBe(true);
+    }
+    expect((await call("booking.seal", { hosts: [keyOf(doc)], payload: { name: "Ada" } })).pow).toBeNull();
+    expect(await code("booking.seal", { hosts: [keyOf(doc)], payload: { name: "Ada" }, pow: { purpose: "other" } })).toBe("invalid_input");
   });
 
   it("refuses a host reference that does not belong to its key and unknown payload fields", async () => {

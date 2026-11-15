@@ -7,21 +7,21 @@
 //!
 //!   x  = HashToGroup(input, T)    a prime form (a, b, c), a a 256-bit prime with (D/a) = 1
 //!   y  = x^(2^T)                  T sequential squarings
-//!   l  = HashToPrime(T, x, y)     256-bit prime (Fiat-Shamir), shared with vdf.rs
+//!   l  = HashToPrime(T, x, y)     256-bit prime (Fiat-Shamir, vdf_math.rs)
 //!   pi = x^floor(2^T / l)         long division on the fly
 //!   verify: pi^l * x^(2^T mod l) == y
 //!
 //! Elements travel as reduced forms: a (128 bytes) || sign(b) (1 byte) || |b| (128 bytes);
 //! decoding refuses anything that is not the unique reduced representative.
 //!
-//! Arithmetic: fixed-width signed integers ([u64; W] magnitudes on the stack), composition after
-//! Shanks/Atkin (the inkfish reference algorithm), Gauss reduction. No allocator and no memory
+//! Arithmetic: fixed-width signed integers ([u64; W] magnitudes on the stack), composition by NUCOMP and
+//! squaring by NUDUPL (Shanks; Jacobson-van der Poorten), Gauss reduction. No allocator and no memory
 //! growth; every integer is overwritten with volatile writes when it is dropped, so no squaring
 //! intermediate outlives its use. All values are public: these routines are variable-time.
 use core::cmp::Ordering;
 use sha2::{Digest, Sha256};
 
-use crate::vdf::{self, Limbs, Monty, PL};
+use crate::vdf_math::{self as math, Limbs, Monty, PL};
 use crate::{wipe, Error, Result};
 
 /// Limbs per integer: 4352 bits, enough for the 4097-bit products inside a composition.
@@ -339,6 +339,9 @@ impl Int {
     fn half(&self) -> Result<Int> {
         self.exact(&Int::from_i64(2))
     }
+    fn half_floor(&self) -> Result<Int> {
+        Ok(self.divmod(&Int::from_i64(2))?.0)
+    }
     fn to_limbs<const K: usize>(&self) -> Result<[u64; K]> {
         if self.neg || mlen(&self.m) > K {
             return Err(Error::Invalid);
@@ -383,6 +386,7 @@ fn xgcd(a: &Int, b: &Int) -> Result<(Int, Int)> {
     Ok((r0, s0))
 }
 
+#[cfg(test)]
 fn gcd(a: &Int, b: &Int) -> Result<Int> {
     let (mut x, mut y) = (a.abs(), b.abs());
     while !y.is_zero() {
@@ -392,7 +396,8 @@ fn gcd(a: &Int, b: &Int) -> Result<Int> {
     Ok(x)
 }
 
-/// Solves a*x = b (mod m): (x0, m / g), or Invalid when g does not divide b.
+/// Solves a*x = b (mod m): (x0, m / g), or Invalid when g does not divide b (test oracle only).
+#[cfg(test)]
 fn solve_mod(a: &Int, b: &Int, m: &Int) -> Result<(Int, Int)> {
     let (g, d) = xgcd(&a.modp(m)?, m)?;
     let (q, r) = b.divmod(&g)?;
@@ -400,6 +405,58 @@ fn solve_mod(a: &Int, b: &Int, m: &Int) -> Result<(Int, Int)> {
         return Err(Error::Invalid);
     }
     Ok((q.mul(&d)?.modp(m)?, m.exact(&g)?))
+}
+
+/// floor(sqrt(n)) for n >= 0 (Newton from a power of two above the root).
+fn isqrt(n: &Int) -> Result<Int> {
+    if n.is_neg() {
+        return Err(Error::Invalid);
+    }
+    if n.is_zero() {
+        return Ok(Int::zero());
+    }
+    let k = (n.bits() + 1) / 2;
+    let mut m = [0u64; W];
+    m[k / 64] = 1u64 << (k % 64);
+    let mut x = Int::mk(false, m);
+    loop {
+        let y = x.add(&n.divmod(&x)?.0)?.half_floor()?;
+        if y.cmp(&x) != Ordering::Less {
+            return Ok(x);
+        }
+        x = y;
+    }
+}
+
+/// The NUCOMP/NUDUPL stopping bound floor((|D| / 4)^(1/4)).
+pub fn nucomp_bound(d: &Int) -> Result<Int> {
+    let q = d.abs().divmod(&Int::from_i64(4))?.0;
+    isqrt(&isqrt(&q)?)
+}
+
+/// Partial extended Euclid on (bx, by), 0 <= bx < by, stopping once |by| <= bound:
+/// returns (bx, by, x, y, steps) with the cofactors of the bx sequence.
+fn partial_euclid(mut bx: Int, mut by: Int, bound: &Int) -> Result<(Int, Int, Int, Int, u32)> {
+    let (mut x, mut y) = (Int::from_i64(1), Int::zero());
+    let mut z = 0u32;
+    while by.abs().cmp(bound) == Ordering::Greater && !bx.is_zero() {
+        let (q, t) = by.divmod(&bx)?;
+        by = core::mem::replace(&mut bx, t);
+        let t2 = y.sub(&q.mul(&x)?)?;
+        y = core::mem::replace(&mut x, t2);
+        z += 1;
+        if z > 1 << 16 {
+            return Err(Error::Invalid);
+        }
+    }
+    Ok((bx, by, x, y, z))
+}
+
+/// Explicit early wipe of intermediates (Drop wipes them again).
+fn wipe_ints(xs: &mut [&mut Int]) {
+    for v in xs.iter_mut() {
+        wipe::words(&mut v.m);
+    }
 }
 
 // ------------------------------------------------------------------ binary quadratic forms
@@ -475,48 +532,124 @@ impl Form {
         Ok(())
     }
 
-    /// Composition (Shanks; the inkfish reference algorithm), reduced.
-    pub fn compose(&self, o: &Form) -> Result<Form> {
-        let (a1, b1, c1) = (&self.a, &self.b, &self.c);
-        let (a2, b2, c2) = (&o.a, &o.b, &o.c);
-        let g = b2.add(b1)?.half()?;
-        let h = b2.sub(b1)?.half()?;
-        let w = gcd(&gcd(a1, a2)?, &g)?;
-        let s = a1.exact(&w)?;
-        let t = a2.exact(&w)?;
-        let u = g.exact(&w)?;
-        let st = s.mul(&t)?;
-        let tu = t.mul(&u)?;
-        let hu = h.mul(&u)?;
-        let (k0, cf) = solve_mod(&tu, &hu.add(&s.mul(c1)?)?, &st)?;
-        let (n, _) = solve_mod(&t.mul(&cf)?, &h.sub(&t.mul(&k0)?)?, &s)?;
-        let k = k0.add(&cf.mul(&n)?)?;
-        let l = t.mul(&k)?.sub(&h)?.exact(&s)?;
-        let m = tu.mul(&k)?.sub(&hu)?.sub(&c1.mul(&s)?)?.exact(&st)?;
-        let _ = c2;
-        let mut f = Form {
-            a: st,
-            b: w.mul(&u)?.sub(&k.mul(&t)?.add(&l.mul(&s)?)?)?,
-            c: k.mul(&l)?.sub(&w.mul(&m)?)?,
+    /// Composition by NUCOMP (Shanks; Jacobson and van der Poorten, "Computational aspects of
+    /// NUCOMP", ANTS 2002): the partial extended Euclid stops at `bound` = floor((|D|/4)^(1/4)),
+    /// so every intermediate stays near sqrt|D| instead of |D|. Output reduced.
+    pub fn compose(&self, o: &Form, bound: &Int) -> Result<Form> {
+        // (u1, v1, w1) carries the larger leading coefficient.
+        let (f1, f2) = if self.a.cmp(&o.a) == Ordering::Less { (o, self) } else { (self, o) };
+        let (u1, v1, w1) = (&f1.a, &f1.b, &f1.c);
+        let (u2, v2, w2) = (&f2.a, &f2.b, &f2.c);
+        let s = v1.add(v2)?.half()?;
+        let m = v2.sub(&s)?;
+        // F = gcd(u2, u1) = b * u2 + c * u1.
+        let (f, b) = xgcd(u2, u1)?;
+        let c = f.sub(&b.mul(u2)?)?.exact(u1)?;
+        let (g, bx_full, by_full, cy_big, dy_big);
+        if s.modp(&f)?.is_zero() {
+            g = f;
+            bx_full = m.mul(&b)?;
+            by_full = u1.exact(&g)?;
+            cy_big = u2.exact(&g)?;
+            dy_big = s.exact(&g)?;
+        } else {
+            // G = gcd(F, s) with y * s = G (mod F).
+            let (gg, y) = xgcd(&s.modp(&f)?, &f)?;
+            let h = f.exact(&gg)?;
+            by_full = u1.exact(&gg)?;
+            cy_big = u2.exact(&gg)?;
+            dy_big = s.exact(&gg)?;
+            let l = y.mul(&b.mul(&w1.modp(&h)?)?.add(&c.mul(&w2.modp(&h)?)?)?)?.modp(&h)?;
+            bx_full = b.mul(&m.exact(&h)?)?.add(&l.mul(&by_full.exact(&h)?)?)?;
+            g = gg;
+        }
+        let (mut bx, mut by, mut x, mut y, z) = partial_euclid(bx_full.modp(&by_full)?, by_full.clone(), bound)?;
+        if z == 0 {
+            let q1 = cy_big.mul(&bx)?;
+            let cx = q1.sub(&m)?.exact(&by)?;
+            let dx = bx.mul(&dy_big)?.sub(w2)?.exact(&by)?;
+            let mut out = Form {
+                a: by.mul(&cy_big)?,
+                b: v2.sub(&q1.add(&q1)?)?,
+                c: bx.mul(&cx)?.sub(&g.mul(&dx)?)?,
+            };
+            out.reduce()?;
+            return Ok(out);
+        }
+        if z & 1 == 1 {
+            by = by.neg();
+            y = y.neg();
+        }
+        let (ax, ay) = (g.mul(&x)?, g.mul(&y)?);
+        let cx = cy_big.mul(&bx)?.sub(&m.mul(&x)?)?.exact(&by_full)?;
+        let q1 = by.mul(&cx)?;
+        let q2 = q1.add(&m)?;
+        let dx = dy_big.mul(&bx)?.sub(&w2.mul(&x)?)?.exact(&by_full)?;
+        let q3 = y.mul(&dx)?;
+        let q4 = q3.add(&dy_big)?;
+        let dy = q4.exact(&x)?;
+        let cy = if bx.is_zero() { cx.mul(&dy)?.sub(w1)?.exact(&dx)? } else { q2.exact(&bx)? };
+        let mut out = Form {
+            a: by.mul(&cy)?.sub(&ay.mul(&dy)?)?,
+            b: g.mul(&q3.add(&q4)?)?.sub(&q1)?.sub(&q2)?,
+            c: bx.mul(&cx)?.sub(&ax.mul(&dx)?)?,
         };
-        f.reduce()?;
-        Ok(f)
+        wipe_ints(&mut [&mut bx, &mut x]);
+        out.reduce()?;
+        Ok(out)
     }
 
-    pub fn square(&self) -> Result<Form> {
-        self.compose(self)
+    /// Squaring by NUDUPL (NUCOMP specialised to f = g; same reference). Output reduced.
+    pub fn square(&self, bound: &Int) -> Result<Form> {
+        let (u, v, w) = (&self.a, &self.b, &self.c);
+        // G = gcd(u, v) with y * v = G (mod u).
+        let (g, y0) = xgcd(&v.modp(u)?, u)?;
+        let by_full = u.exact(&g)?;
+        let dy_big = v.exact(&g)?;
+        let bx_full = y0.mul(w)?.modp(&by_full)?;
+        let (bx, mut by, x, mut y, z) = partial_euclid(bx_full, by_full.clone(), bound)?;
+        if z == 0 {
+            let dx = bx.mul(&dy_big)?.sub(w)?.exact(&by)?;
+            let q1 = by.mul(&bx)?;
+            let mut out = Form {
+                a: by.mul(&by)?,
+                b: v.sub(&q1.add(&q1)?)?,
+                c: bx.mul(&bx)?.sub(&g.mul(&dx)?)?,
+            };
+            out.reduce()?;
+            return Ok(out);
+        }
+        if z & 1 == 1 {
+            by = by.neg();
+            y = y.neg();
+        }
+        let (ax, ay) = (g.mul(&x)?, g.mul(&y)?);
+        let dx = dy_big.mul(&bx)?.sub(&w.mul(&x)?)?.exact(&by_full)?;
+        let q1 = y.mul(&dx)?;
+        let dy = q1.add(&dy_big)?;
+        let b3 = g.mul(&dy.add(&q1)?)?;
+        let dy = dy.exact(&x)?;
+        let (bx2, by2) = (bx.mul(&bx)?, by.mul(&by)?);
+        let sum = bx.add(&by)?;
+        let mut out = Form {
+            a: by2.sub(&ay.mul(&dy)?)?,
+            b: b3.sub(&sum.mul(&sum)?)?.add(&by2)?.add(&bx2)?,
+            c: bx2.sub(&ax.mul(&dx)?)?,
+        };
+        out.reduce()?;
+        Ok(out)
     }
 
     /// self^e for e as little-endian limbs (public exponent, square-and-multiply).
-    pub fn pow<const E: usize>(&self, e: &[u64; E], d: &Int) -> Result<Form> {
+    pub fn pow<const E: usize>(&self, e: &[u64; E], d: &Int, bound: &Int) -> Result<Form> {
         let mut acc = Form::identity(d)?;
         let mut started = false;
         for i in (0..64 * E).rev() {
             if started {
-                acc = acc.square()?;
+                acc = acc.square(bound)?;
             }
             if (e[i / 64] >> (i % 64)) & 1 == 1 {
-                acc = if started { acc.compose(self)? } else { self.clone() };
+                acc = if started { acc.compose(self, bound)? } else { self.clone() };
                 started = true;
             }
         }
@@ -569,10 +702,10 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         h.update(t.to_be_bytes());
         h.update((input.len() as u32).to_be_bytes());
         h.update(input);
-        let mut a: Limbs<PL> = vdf::from_be(&h.finalize());
+        let mut a: Limbs<PL> = math::from_be(&h.finalize());
         a[PL - 1] |= 1 << 63;
         a[0] |= 3;
-        if !vdf::probable_prime(&a) {
+        if !math::probable_prime(&a) {
             continue;
         }
         let ai = Int::from_limbs(&a, false);
@@ -583,8 +716,6 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         for i in 0..PL {
             e[i] = (a[i] >> 2) | if i + 1 < PL { a[i + 1] << 62 } else { 0 };
         }
-        let mut one = [0u64; PL];
-        one[0] = 1;
         let (e, _) = {
             let mut s = [0u64; PL];
             let mut c = 1u128;
@@ -597,7 +728,7 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         };
         let dmm = mont.to_mont(&dm);
         let root_m = mont.pow(&dmm, &e);
-        if !vdf::eq(&mont.mul(&root_m, &root_m), &dmm) {
+        if !math::eq(&mont.mul(&root_m, &root_m), &dmm) {
             continue; // D is not a square mod a
         }
         let root = Int::from_limbs(&mont.from_mont(&root_m), false);
@@ -622,25 +753,26 @@ pub fn evaluate_with(d: &Int, input: &[u8], t: u64, out: &mut [u8]) -> Result<()
     if out.len() != PROOF_LEN {
         return Err(Error::Invalid);
     }
+    let bound = nucomp_bound(d)?;
     let x = hash_to_group(input, t, d)?;
     let mut y = x.clone();
     for _ in 0..t {
-        y = y.square()?;
+        y = y.square(&bound)?;
     }
     let mut xb = [0u8; ELEM_LEN];
     x.encode(&mut xb)?;
     let (yb, pb) = out.split_at_mut(ELEM_LEN);
     y.encode(yb)?;
-    let l = vdf::hash_to_prime_dst(DST_L, t, &xb, yb)?;
+    let l = math::hash_to_prime_dst(DST_L, t, &xb, yb)?;
     let li = Int::from_limbs(&l, false);
     let mut r = Int::from_i64(1);
     let mut pi = Form::identity(d)?;
     for _ in 0..t {
         let r2 = r.add(&r)?;
-        pi = pi.square()?;
+        pi = pi.square(&bound)?;
         if r2.cmp(&li) != Ordering::Less {
             r = r2.sub(&li)?;
-            pi = pi.compose(&x)?;
+            pi = pi.compose(&x, &bound)?;
         } else {
             r = r2;
         }
@@ -658,12 +790,13 @@ pub fn verify_with(d: &Int, input: &[u8], t: u64, proof: &[u8]) -> Result<()> {
     let x = hash_to_group(input, t, d)?;
     let mut xb = [0u8; ELEM_LEN];
     x.encode(&mut xb)?;
-    let l = vdf::hash_to_prime_dst(DST_L, t, &xb, &proof[..ELEM_LEN])?;
+    let l = math::hash_to_prime_dst(DST_L, t, &xb, &proof[..ELEM_LEN])?;
     let ml = Monty::<PL>::new(&l);
     let mut two = [0u64; PL];
     two[0] = 2;
     let r = ml.from_mont(&ml.pow(&ml.to_mont(&two), &[t]));
-    let lhs = pi.pow(&l, d)?.compose(&x.pow(&r, d)?)?;
+    let bound = nucomp_bound(d)?;
+    let lhs = pi.pow(&l, d, &bound)?.compose(&x.pow(&r, d, &bound)?, &bound)?;
     if lhs == y {
         Ok(())
     } else {
@@ -707,6 +840,79 @@ mod unit {
         out
     }
 
+    /// The former Shanks/Atkin composition, kept only as an independent test oracle.
+    fn compose_reference(f1: &Form, f2: &Form) -> Form {
+        let (a1, b1, c1) = (&f1.a, &f1.b, &f1.c);
+        let (a2, b2) = (&f2.a, &f2.b);
+        let g = b2.add(b1).unwrap().half().unwrap();
+        let h = b2.sub(b1).unwrap().half().unwrap();
+        let w = gcd(&gcd(a1, a2).unwrap(), &g).unwrap();
+        let s = a1.exact(&w).unwrap();
+        let t = a2.exact(&w).unwrap();
+        let u = g.exact(&w).unwrap();
+        let st = s.mul(&t).unwrap();
+        let tu = t.mul(&u).unwrap();
+        let hu = h.mul(&u).unwrap();
+        let (k0, cf) = solve_mod(&tu, &hu.add(&s.mul(c1).unwrap()).unwrap(), &st).unwrap();
+        let (n, _) = solve_mod(&t.mul(&cf).unwrap(), &h.sub(&t.mul(&k0).unwrap()).unwrap(), &s).unwrap();
+        let k = k0.add(&cf.mul(&n).unwrap()).unwrap();
+        let l = t.mul(&k).unwrap().sub(&h).unwrap().exact(&s).unwrap();
+        let m = tu.mul(&k).unwrap().sub(&hu).unwrap().sub(&c1.mul(&s).unwrap()).unwrap().exact(&st).unwrap();
+        let mut f = Form {
+            a: st,
+            b: w.mul(&u).unwrap().sub(&k.mul(&t).unwrap().add(&l.mul(&s).unwrap()).unwrap()).unwrap(),
+            c: k.mul(&l).unwrap().sub(&w.mul(&m).unwrap()).unwrap(),
+        };
+        f.reduce().unwrap();
+        f
+    }
+
+    #[test]
+    fn nucomp_and_nudupl_match_the_reference_on_small_discriminants() {
+        for &dv in &[-23i64, -47, -71, -199, -1031, -10007, -100_003, -1_000_003] {
+            let dd = d(dv);
+            let bnd = nucomp_bound(&dd).unwrap();
+            let fs: Vec<Form> = reduced_forms(dv).iter().take(40).map(|&(a, b)| Form::from_ab(d(a), d(b), &dd).unwrap()).collect();
+            for x in &fs {
+                assert_eq!(x.square(&bnd).unwrap(), compose_reference(x, x), "nudupl D={}", dv);
+                for y in &fs {
+                    assert_eq!(x.compose(y, &bnd).unwrap(), compose_reference(x, y), "nucomp D={}", dv);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nucomp_and_nudupl_match_the_reference_at_2048_bits() {
+        let dd = discriminant();
+        let bnd = nucomp_bound(&dd).unwrap();
+        let mut f = hash_to_group(b"nucomp-2048", 1, &dd).unwrap();
+        let g = hash_to_group(b"nucomp-2048-other", 1, &dd).unwrap();
+        for _ in 0..64 {
+            let sq = f.square(&bnd).unwrap();
+            assert_eq!(sq, compose_reference(&f, &f));
+            assert_eq!(sq.discriminant().unwrap(), dd);
+            let fg = f.compose(&g, &bnd).unwrap();
+            assert_eq!(fg, compose_reference(&f, &g));
+            assert!(fg.is_reduced());
+            f = fg.square(&bnd).unwrap();
+        }
+    }
+
+    #[test]
+    fn bound_is_the_fourth_root_of_a_quarter_of_d() {
+        // |D|/4 = 25_000 → sqrt = 158 → sqrt = 12.
+        assert_eq!(nucomp_bound(&d(-100_003)).unwrap(), d(12));
+        let l = nucomp_bound(&discriminant()).unwrap();
+        assert!(l.bits() >= 510 && l.bits() <= 512);
+    }
+
+    #[test]
+    fn discriminant_is_one_mod_four() {
+        // D = -p with p = 3 (mod 4)  <=>  D = 1 (mod 4): a fundamental discriminant, no RSA modulus.
+        assert_eq!(discriminant().modp(&d(4)).unwrap(), d(1));
+    }
+
     #[test]
     fn bignum_division_matches_u128() {
         let mut x: u128 = 0x1234_5678_9abc_def0_0fed_cba9_8765_4321;
@@ -748,16 +954,17 @@ mod unit {
             let h = forms.len() as u64;
             assert!(h % 2 == 1, "prime discriminant has odd class number");
             let dd = d(dv);
+            let bnd = nucomp_bound(&dd).unwrap();
             let id = Form::identity(&dd).unwrap();
             for &(a, b) in forms.iter().take(12) {
                 let f = Form::from_ab(d(a), d(b), &dd).unwrap();
                 assert!(f.is_reduced());
-                let p = f.pow(&[h], &dd).unwrap();
+                let p = f.pow(&[h], &dd, &bnd).unwrap();
                 assert_eq!(p, id, "f^h != 1 for D={} f=({},{})", dv, a, b);
                 // f^(h+1) == f and the discriminant is preserved by every step
-                let q = f.pow(&[h + 1], &dd).unwrap();
+                let q = f.pow(&[h + 1], &dd, &bnd).unwrap();
                 assert_eq!(q, f);
-                assert_eq!(f.square().unwrap().discriminant().unwrap(), dd);
+                assert_eq!(f.square(&bnd).unwrap().discriminant().unwrap(), dd);
             }
         }
     }
@@ -767,14 +974,15 @@ mod unit {
         let dv = -100_003i64;
         let dd = d(dv);
         let forms = reduced_forms(dv);
+        let bnd = nucomp_bound(&dd).unwrap();
         let fs: Vec<Form> = forms.iter().take(8).map(|&(a, b)| Form::from_ab(d(a), d(b), &dd).unwrap()).collect();
         for x in &fs {
             for y in &fs {
-                let xy = x.compose(y).unwrap();
+                let xy = x.compose(y, &bnd).unwrap();
                 assert!(xy.is_reduced());
-                assert_eq!(xy, y.compose(x).unwrap());
+                assert_eq!(xy, y.compose(x, &bnd).unwrap());
                 for z in fs.iter().take(3) {
-                    assert_eq!(xy.compose(z).unwrap(), x.compose(&y.compose(z).unwrap()).unwrap());
+                    assert_eq!(xy.compose(z, &bnd).unwrap(), x.compose(&y.compose(z, &bnd).unwrap(), &bnd).unwrap());
                 }
             }
         }

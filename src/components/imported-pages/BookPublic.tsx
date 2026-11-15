@@ -159,7 +159,7 @@ export default function BookPublic({ eventTypeId, selectedStart, initial }: { ev
   const today = localDayKey(new Date().toISOString(), tz);
   const LocIcon = et.locationKind === "video" ? Video : et.locationKind === "phone" ? Phone : MapPin;
 
-  const sealDetails = async (checkedAnswers: IntakeAnswers): Promise<{ ok: true; value: { pid: string; hosts: Record<string, string> } } | { ok: false; reason: "host_key_missing" | "error" }> => {
+  const sealDetails = async (checkedAnswers: IntakeAnswers): Promise<{ ok: true; value: { pid: string; hosts: Record<string, string> }; pow: { nonce: string; epoch: number } } | { ok: false; reason: "host_key_missing" | "error" }> => {
     try {
       const keys = await hostKeysFn({ data: { id: eventTypeId } });
       if (!keys.ok) return { ok: false, reason: keys.reason === "host_key_missing" ? "host_key_missing" : "error" };
@@ -169,12 +169,17 @@ export default function BookPublic({ eventTypeId, selectedStart, initial }: { ev
         .filter(([, v]) => v !== "")
         .map(([questionId, v]) => ({ questionId, value: typeof v === "boolean" ? (v ? "true" : "false") : v }));
       const { enclave } = await import("@/lib/crypto-enclave/client");
+      // Sealing and the BLAKE3 proof-of-work both run in the crypto worker.
       const out = await enclave.booking.seal(hosts.map((h) => ({ ref: h.ref, publicKey: h.publicKey! })), {
         name: form.name.trim(), email: form.email.trim().toLowerCase(),
         ...(form.note.trim() ? { note: form.note } : {}),
         ...(answers.length ? { answers } : {}),
-      });
-      return { ok: true, value: { pid: out.payloadId, hosts: Object.fromEntries(out.hosts.map((h) => [h.ref, b64uEncode(h.envelope)])) } };
+      }, { purpose: "booking" });
+      for (const h of hosts) h.publicKey?.fill(0);
+      if (!out.pow) return { ok: false, reason: "error" };
+      const encoded = Object.fromEntries(out.hosts.map((h) => [h.ref, b64uEncode(h.envelope)]));
+      for (const h of out.hosts) h.envelope.fill(0);
+      return { ok: true, value: { pid: out.payloadId, hosts: encoded }, pow: out.pow };
     } catch {
       return { ok: false, reason: "error" };
     }
@@ -194,7 +199,7 @@ export default function BookPublic({ eventTypeId, selectedStart, initial }: { ev
       setError(t(sealed.reason === "host_key_missing" ? "booking.public.hostKeyMissing" : "booking.err.generic"));
       return;
     }
-    const r = await book({ data: { eventTypeId, startUtc: slot, guestTimezone: tz, sealed: sealed.value,
+    const r = await book({ data: { eventTypeId, startUtc: slot, guestTimezone: tz, sealed: sealed.value, pow: sealed.pow,
       holdId: held?.holdId ?? null, holdSecret: held?.secret ?? null } })
       .catch(() => ({ ok: false as const, reason: "invalid" as const }));
     setSending(false);

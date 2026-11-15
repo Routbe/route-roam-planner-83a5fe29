@@ -8,7 +8,8 @@ import { recomputeUser } from "./recompute.server";
 import type { EventTypeInput, AvailabilityRule } from "./types";
 import { intakeFields } from "./intake";
 import { effectiveMaxDaysAhead } from "./slot-rules";
-import { parseSealedIntake } from "./sealed-booking";
+import { parseSealedIntake, parseSealedIntakeV3 } from "./sealed-booking";
+import { sealedSchemaReady } from "./sealed-schema.server";
 
 /** db/0218 columns exist (cached 60 s), so saves never reference missing columns before it is applied. */
 let phase2Probe: { ok: boolean; at: number } | null = null;
@@ -22,8 +23,8 @@ async function hasPhase2(): Promise<boolean> {
 /** Host-only view of intake answers: labels + values; sealed ones are opened server-side. */
 async function readIntake(b: Record<string, unknown>): Promise<{ label: string; value: string }[]> {
   const stored = b["intake_answers"] as { v?: unknown; plain?: Record<string, unknown>; sealed?: { ciphertext: string; iv: string } } | null;
-  // v2 = end-to-end sealed (Fase 1): only the host's device can open it.
-  if (!stored || stored.v === 2) return [];
+  // v2/v3 = end-to-end sealed: only the host's device can open it.
+  if (!stored || stored.v === 2 || stored.v === 3) return [];
   const fields = intakeFields.safeParse(b["custom_fields"] ?? []).data ?? [];
   let all: Record<string, unknown> = { ...(stored.plain ?? {}) };
   if (stored.sealed) {
@@ -89,6 +90,14 @@ export async function overview(userId: string) {
       : Promise.resolve([]),
   ])) as unknown as [Record<string, unknown>[], Record<string, unknown>[], Record<string, unknown>[], Record<string, unknown>[], { user_id: string; name: string }[]];
   const s = (v: unknown) => (v == null ? null : String(v));
+  // db/0278: host copies of sealed bookings live in booking_payloads; RLS returns only the caller's own copy.
+  const v3Ids = bookings.filter((b) => parseSealedIntakeV3(b["intake_answers"])).map((b) => String(b["id"]));
+  const payloads = new Map<string, Record<string, string>>();
+  if (v3Ids.length && (await sealedSchemaReady().catch(() => false))) {
+    const rows = (await sql`select booking_id, payload_id, host_ref, encrypted_rve1_payload from public.booking_payloads
+      where booking_id = any(${v3Ids}::uuid[])`) as Record<string, unknown>[];
+    for (const r of rows) payloads.set(String(r["booking_id"]), { [String(r["host_ref"])]: String(r["encrypted_rve1_payload"]) });
+  }
   return {
     workspaceId: canWs ? workspaceId : null,
     /** Holds, limits and business-day windows are live (db/0218). */
@@ -122,7 +131,9 @@ export async function overview(userId: string) {
     overrides: overrides.map((o) => ({ id: String(o["id"]), kind: String(o["kind"]) as "free" | "busy",
       startUtc: new Date(String(o["start_utc"])).toISOString(), endUtc: new Date(String(o["end_utc"])).toISOString() })),
     bookings: (await Promise.all(bookings.map(async (b) => ({ ...b, intake: await readIntake(b) })))).map((b) => {
-      const sealed = parseSealedIntake(b["intake_answers"]);
+      const v3 = parseSealedIntakeV3(b["intake_answers"]);
+      const sealed = parseSealedIntake(b["intake_answers"])
+        ?? (v3 ? { v: 2 as const, pid: v3.pid, hosts: payloads.get(String(b["id"])) ?? {} } : null);
       const fields = intakeFields.safeParse(b["custom_fields"] ?? []).data ?? [];
       return {
         intake: b.intake,

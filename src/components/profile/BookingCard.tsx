@@ -87,19 +87,24 @@ export function BookingCard({
         return;
       }
       const { enclave } = await import("@/lib/crypto-enclave/client");
+      // Sealing and the BLAKE3 proof-of-work both run in the crypto worker.
       const sealed = await enclave.booking.seal([{ ref: key.ref, publicKey }], {
         name: name.trim(),
         email: email.trim().toLowerCase(),
         ...(message.trim() ? { note: message.trim().slice(0, BOOKING_MESSAGE_MAX) } : {}),
-      });
+      }, { purpose: "inquiry" });
+      publicKey.fill(0);
       const copy = sealed.hosts[0];
-      if (!copy || copy.ref !== key.ref) throw new Error("seal");
+      if (!copy || copy.ref !== key.ref || !sealed.pow) throw new Error("seal");
+      const envelope = b64uEncode(copy.envelope);
+      for (const c of sealed.hosts) c.envelope.fill(0);
       const res = await send({
         data: {
           handle,
           preferredDate: date,
           preferredTime: time,
-          sealed: { pid: sealed.payloadId, ref: copy.ref, envelope: b64uEncode(copy.envelope) },
+          sealed: { pid: sealed.payloadId, ref: copy.ref, envelope },
+          pow: sealed.pow,
           altcha: await takeProof(),
         },
       });
@@ -115,6 +120,7 @@ export function BookingCard({
             res.reason === "unavailable" ? "profile.sealedUnavailable"
               : res.reason === "host_key_missing" ? "profile.sealedHostKeyMissing"
               : res.reason === "past_date" ? "profile.sealedPastDate"
+              : res.reason === "rate_limited" ? "profile.requestRateLimited"
               : "profile.requestFailed",
           ),
         );

@@ -36,6 +36,7 @@ import { beginOperation, endOperation } from "./operation-control";
 import { passwordHandlers, type PasswordOp } from "./password-enclave";
 import { ENVELOPE_MAX_BYTES, ENVELOPE_MAX_PLAINTEXT, generateRecipientKeys, keyId, openEnvelope, PUBLIC_KEY_BYTES, publicKeyOf, sealEnvelope } from "./pqc-envelope";
 import { loadRve1Key, rve1SeedAad, saveRve1Key } from "./rve1-key-store";
+import { solveSealedPow } from "./sealed-pow";
 import { BookingSealError, hostBookingKeys, normalizePayload, openBookingPayload, sealBookingPayload, type BookingPayload } from "./booking-seal";
 import { hostBookingKeyDoc, hostRefOf, MAX_SEALED_HOSTS, type HostBookingKeyDoc } from "@/lib/booking-engine/sealed-booking";
 import { vaultContext } from "@/lib/vault/vault-context";
@@ -1076,7 +1077,7 @@ const coreHandlers: CoreHandlers = {
     }));
   },
 
-  async "booking.seal"({ hosts, payload }) {
+  async "booking.seal"({ hosts, payload, pow }) {
     if (!Array.isArray(hosts) || hosts.length < 1 || hosts.length > MAX_SEALED_HOSTS) fail("invalid_input");
     let normalized: BookingPayload;
     try {
@@ -1093,17 +1094,28 @@ const coreHandlers: CoreHandlers = {
       return { ref, publicKey };
     });
     if (new Set(recipients.map((r) => r.ref)).size !== recipients.length) fail("invalid_input");
+    const rawPurpose: unknown = pow === undefined || pow === null ? null : (pow as { purpose?: unknown }).purpose;
+    if (rawPurpose !== null && rawPurpose !== "booking" && rawPurpose !== "inquiry") fail("invalid_input");
+    const purpose = rawPurpose as "booking" | "inquiry" | null;
     const payloadId = crypto.randomUUID();
+    let sealed: { ref: string; envelope: Uint8Array }[];
     try {
-      return {
-        payloadId,
-        hosts: recipients.map(({ ref, publicKey }) => ({
-          ref,
-          envelope: sealBookingPayload({ hostUserId: ref, payloadId, payload: normalized, hostPublicKey: publicKey }).host,
-        })),
-      };
+      sealed = recipients.map(({ ref, publicKey }) => ({
+        ref,
+        envelope: sealBookingPayload({ hostUserId: ref, payloadId, payload: normalized, hostPublicKey: publicKey }).host,
+      }));
     } catch {
       return fail("invalid_input");
+    }
+    try {
+      // The proof binds the exact ciphertext; solveSealedPow wipes its hashes, binding and preimages.
+      const proof = purpose ? solveSealedPow(purpose, payloadId, sealed, Date.now()) : null;
+      return { payloadId, hosts: sealed, pow: proof };
+    } catch {
+      for (const c of sealed) c.envelope.fill(0);
+      return fail("invalid_input");
+    } finally {
+      for (const r of recipients) r.publicKey.fill(0);
     }
   },
 

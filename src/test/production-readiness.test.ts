@@ -34,6 +34,6 @@ describe("missing credentials fail clearly", () => {
   });
   it("storage without keys throws a clear not_configured message", async () => {
     const { StorageNotConfigured } = await import("@/lib/storage/s3.server");
-    expect(new StorageNotConfigured().message).toMatch(/^not_configured: Scaleway[\s\S]*nog niet ingesteld/);
+    expect(new StorageNotConfigured().message).toMatch(/^not_configured: Object Storage \(S3\)[\s\S]*nog niet ingesteld/);
   });
 });
