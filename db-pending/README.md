@@ -29,7 +29,7 @@ Applied and moved into `db/`: 0230, 0231, 0233, 0235, 0237 (production reported 
 ## Current state of db/ (2026-11-15 19:12 UTC)
 
 - Schema level **0280** (`CODE_SCHEMA_LEVEL` in `src/lib/schema-version.ts`), 274 rows in `public.schema_migrations` on Neon.
-- `bun scripts/schema-snapshot.ts --check` against Neon: **0 differences** with `db/schema.snapshot.json` (which is produced by an offline replay of this folder).
+- `bun scripts/schema-snapshot.ts --check` against Neon: **0 differences** with `db/schema.snapshot.json` (produced by an offline replay of db/).
 - `bun scripts/tenant-backfill.ts --url-env OWNER_DATABASE_URL`: 51 checks, 0 deviations.
 - `bun scripts/migration-history-check.ts` and `bun scripts/security-definer-check.ts`: 0 deviations (432 SECURITY DEFINER functions, all on `pg_catalog, pg_temp`).
 - `bun scripts/formal-rls/certify-0280.ts --url-env OWNER_DATABASE_URL`: CERTIFIED on the live catalog (1225 obligations, 547 Z3 checks, 0 unproven); report in `docs/rls-0280-certification.md`.
