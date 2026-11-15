@@ -386,6 +386,7 @@ fn xgcd(a: &Int, b: &Int) -> Result<(Int, Int)> {
     Ok((r0, s0))
 }
 
+#[cfg(test)]
 fn gcd(a: &Int, b: &Int) -> Result<Int> {
     let (mut x, mut y) = (a.abs(), b.abs());
     while !y.is_zero() {
@@ -395,7 +396,8 @@ fn gcd(a: &Int, b: &Int) -> Result<Int> {
     Ok(x)
 }
 
-/// Solves a*x = b (mod m): (x0, m / g), or Invalid when g does not divide b.
+/// Solves a*x = b (mod m): (x0, m / g), or Invalid when g does not divide b (test oracle only).
+#[cfg(test)]
 fn solve_mod(a: &Int, b: &Int, m: &Int) -> Result<(Int, Int)> {
     let (g, d) = xgcd(&a.modp(m)?, m)?;
     let (q, r) = b.divmod(&g)?;
@@ -714,8 +716,6 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         for i in 0..PL {
             e[i] = (a[i] >> 2) | if i + 1 < PL { a[i + 1] << 62 } else { 0 };
         }
-        let mut one = [0u64; PL];
-        one[0] = 1;
         let (e, _) = {
             let mut s = [0u64; PL];
             let mut c = 1u128;

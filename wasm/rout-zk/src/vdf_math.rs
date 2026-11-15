@@ -63,10 +63,6 @@ pub(crate) fn select<const K: usize>(yes: &Limbs<K>, no: &Limbs<K>, choice: u64)
     out
 }
 
-pub(crate) fn is_zero<const K: usize>(a: &Limbs<K>) -> bool {
-    a.iter().fold(0u64, |acc, x| acc | x) == 0
-}
-
 pub(crate) fn eq<const K: usize>(a: &Limbs<K>, b: &Limbs<K>) -> bool {
     a.iter().zip(b.iter()).fold(0u64, |acc, (x, y)| acc | (x ^ y)) == 0
 }
@@ -80,13 +76,6 @@ pub(crate) fn from_be<const K: usize>(b: &[u8]) -> Limbs<K> {
         out[i] = u64::from_be_bytes(w);
     }
     out
-}
-
-pub(crate) fn to_be<const K: usize>(a: &Limbs<K>, out: &mut [u8]) {
-    let n = out.len();
-    for i in 0..K {
-        out[n - 8 * (i + 1)..n - 8 * i].copy_from_slice(&a[i].to_be_bytes());
-    }
 }
 
 /// Montgomery arithmetic modulo an odd n (R = 2^(64K)).
