@@ -5,6 +5,7 @@
 //! class group of an imaginary quadratic order (no trusted setup). No allocator, stack-only
 //! buffers; every value handled here is public.
 use sha2::{Digest, Sha256};
+use crate::{Error, Result};
 
 /// Limbs of a 256-bit prime (HashToPrime output, prime-form leading coefficients).
 pub(crate) const PL: usize = 4;
