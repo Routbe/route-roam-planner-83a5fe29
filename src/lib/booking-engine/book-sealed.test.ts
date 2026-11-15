@@ -85,7 +85,9 @@ describe("sealed bookings go to Neon through rout_booking_create_sealed", () => 
     expect(calls).toHaveLength(1);
     const { text, values } = calls[0]!;
     expect(text).toContain("rout_booking_create_sealed");
-    for (const secret of ["Ada", "ada@example.com", "allergie"]) expect(JSON.stringify(values)).not.toContain(secret);
+    // Envelopes are random base64url and can contain a short name by chance: blank them before searching.
+    const scrubbed = JSON.stringify(values).split(hosts[ref]!).join("<envelope>");
+    for (const secret of ["Ada", "ada@example.com", "allergie"]) expect(scrubbed).not.toContain(secret);
     const copies = JSON.parse(values.find((v) => typeof v === "string" && v.startsWith("[")) as string);
     const hash = Array.from(blake3(b64uDecode(hosts[ref]!)!), (b) => b.toString(16).padStart(2, "0")).join("");
     expect(copies).toEqual([{ ref, envelope: hosts[ref], hash }]);
