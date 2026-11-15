@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { blake3 } from "@noble/hashes/blake3.js";
 import { applyPending, replayDb, ROOT } from "../../scripts/formal-rls/replay";
+import { AUDIT_ROLES, POLICY_GRANT_AUDIT_SQL } from "../../scripts/formal-rls/policy-grant-audit";
 import { hostBookingKeys, sealBookingPayload } from "@/lib/crypto-enclave/booking-seal";
 import { epochBucketAt, solveSealedPow } from "@/lib/crypto-enclave/sealed-pow";
 import { b64uEncode, hostRefOf } from "@/lib/booking-engine/sealed-booking";
@@ -63,6 +64,17 @@ beforeAll(async () => {
 afterAll(async () => { await db?.close(); });
 
 describe("db-pending/0278 on a replay of db/", () => {
+  it("every audited role can execute each helper the new policies need; internal helpers stay closed to rout_app", async () => {
+    await db.exec("reset role");
+    expect((await db.query(POLICY_GRANT_AUDIT_SQL, [AUDIT_ROLES as unknown as string[]])).rows).toEqual([]);
+    const can = async (fn: string) => (await db.query<{ ok: boolean }>("select has_function_privilege('rout_app', $1, 'execute') as ok", [fn])).rows[0]!.ok;
+    expect(await can("public.rout_sealed_envelope_ok(text)")).toBe(false);
+    expect(await can("public.rout_sealed_epoch_ok(integer)")).toBe(false);
+    expect(await can("public.rout_booking_create_sealed(uuid, timestamptz, text, uuid, jsonb, text, integer, uuid, text)")).toBe(true);
+    const pub = await db.query<{ ok: boolean }>("select has_function_privilege('public', 'public.rout_inquiry_create_sealed(uuid, uuid, uuid, date, text, integer, text, text, bytea, text, integer)', 'execute') as ok");
+    expect(pub.rows[0]!.ok).toBe(false);
+  });
+
   it("rout_app can read the new tables but never write them directly", async () => {
     await as(A);
     await expect(db.query(`insert into public.booking_host_keys (host_user_id, host_ref, kid, public_key, sealed_seed, key_id) values ('${A}', '${refA}', 'x', 'x', 'x', 'x')`)).rejects.toThrow(/permission denied/);
