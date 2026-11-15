@@ -1,4 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+
+const outputs = vi.hoisted(() => [] as { input: number; out: Uint8Array }[]);
+vi.mock("@noble/hashes/blake3.js", async (orig) => {
+  const real = await orig<typeof import("@noble/hashes/blake3.js")>();
+  const blake3 = Object.assign((msg: Uint8Array, opts?: unknown) => {
+    const out = real.blake3(msg, opts as never);
+    outputs.push({ input: msg.length, out });
+    return out;
+  }, real.blake3);
+  return { ...real, blake3 };
+});
 import { blake3 } from "@noble/hashes/blake3.js";
 import {
   checkSealedPow, epochBucketAt, leadingZeroBits, payloadHash, SEALED_EPOCH_SECONDS, SEALED_POW_REQUIRED_BITS,
@@ -58,18 +69,24 @@ describe("sealed BLAKE3 Hashcash", () => {
     }
   });
 
-  it("wipes the payload hashes it computed when it refuses a proof", () => {
+  it("wipes the payload hashes it computed when it refuses a proof, and hands accepted ones to the caller", () => {
     const copies = [{ ref: R1, envelope: env(5) }];
-    const seen: Uint8Array[] = [];
-    const spy = vi.spyOn(Map.prototype, "set").mockImplementation(function (this: Map<unknown, unknown>, k: unknown, v: unknown) {
-      if (v instanceof Uint8Array) seen.push(v);
-      return Map.prototype.get.call(this, k) === undefined ? (spy.getMockImplementation(), Reflect.apply(Object.getPrototypeOf(new Map()).constructor.prototype.set.__proto__ === undefined ? () => this : origSet, this, [k, v])) : this;
-    });
-    spy.mockRestore();
-    const bad = { nonce: "0000000000000000", epoch: epochBucketAt(NOW) };
-    const r = checkSealedPow("booking", PID, copies, bad, NOW);
-    if (r.ok) return; // 2^-16: the fixed nonce happened to be a solution.
-    expect(seen.length >= 0).toBe(true);
+    outputs.length = 0;
+    const proof = solveSealedPow("booking", PID, copies, NOW);
+    const solverHashes = outputs.filter((o) => o.input === 3583).map((o) => o.out);
+    expect(solverHashes.length).toBeGreaterThan(0);
+    for (const h of solverHashes) expect(h.every((b) => b === 0)).toBe(true);
+
+    outputs.length = 0;
+    const wrong = { ...proof, nonce: proof.nonce === "0000000000000000" ? "0000000000000001" : "0000000000000000" };
+    const r = checkSealedPow("booking", PID, copies, wrong, NOW);
+    if (r.ok) return; // 2^-16: the substituted nonce happens to solve it too.
+    const refused = outputs.filter((o) => o.input === 3583).map((o) => o.out);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]!.every((b) => b === 0)).toBe(true);
+
+    outputs.length = 0;
+    const ok = checkSealedPow("booking", PID, copies, proof, NOW);
+    expect(ok.ok && [...ok.hashes.values()][0]!.some((b) => b !== 0)).toBe(true);
   });
 });
-const origSet = Map.prototype.set;
