@@ -538,6 +538,29 @@ export interface PublicBookingHoldsRow {
   "created_at": string | Date;
 }
 
+export interface PublicBookingHostKeysRow {
+  "host_user_id": string;
+  "host_ref": string;
+  "kid": string;
+  "public_key": string;
+  "sealed_seed": string;
+  "key_id": string;
+  "created_at": string | Date;
+  "updated_at": string | Date;
+}
+
+export interface PublicBookingPayloadsRow {
+  "booking_id": string;
+  "host_user_id": string;
+  "payload_id": string;
+  "host_ref": string;
+  "encrypted_rve1_payload": string;
+  "blake3_payload_hash": Uint8Array;
+  "pow_nonce": string;
+  "epoch_bucket": number;
+  "created_at": string | Date;
+}
+
 export interface PublicBookingRequestsRow {
   "id": string;
   "profile_id": string;
@@ -1024,6 +1047,24 @@ export interface PublicInfluencerRequestsRow {
   "created_at": string | Date;
   "reviewed_at": string | Date | null;
   "reviewed_by": string | null;
+}
+
+export interface PublicInquiriesRow {
+  "id": string;
+  "host_user_id": string;
+  "payload_id": string;
+  "host_ref": string;
+  "preferred_date": string | Date;
+  "preferred_time": string;
+  "duration_minutes": number;
+  "title": string | null;
+  "status": string;
+  "encrypted_rve1_payload": string;
+  "blake3_payload_hash": Uint8Array;
+  "pow_nonce": string;
+  "epoch_bucket": number;
+  "created_at": string | Date;
+  "resolved_at": string | Date | null;
 }
 
 export interface PublicInvoiceDeliveriesRow {
@@ -2582,6 +2623,8 @@ export interface DbTables {
   "public.booking_event_type_hosts": PublicBookingEventTypeHostsRow;
   "public.booking_event_types": PublicBookingEventTypesRow;
   "public.booking_holds": PublicBookingHoldsRow;
+  "public.booking_host_keys": PublicBookingHostKeysRow;
+  "public.booking_payloads": PublicBookingPayloadsRow;
   "public.booking_requests": PublicBookingRequestsRow;
   "public.bookings": PublicBookingsRow;
   "public.bunq_oauth_tokens": PublicBunqOauthTokensRow;
@@ -2622,6 +2665,7 @@ export interface DbTables {
   "public.identity_verification_sessions": PublicIdentityVerificationSessionsRow;
   "public.identity_verifications": PublicIdentityVerificationsRow;
   "public.influencer_requests": PublicInfluencerRequestsRow;
+  "public.inquiries": PublicInquiriesRow;
   "public.invoice_deliveries": PublicInvoiceDeliveriesRow;
   "public.lead_captures": PublicLeadCapturesRow;
   "public.links": PublicLinksRow;
