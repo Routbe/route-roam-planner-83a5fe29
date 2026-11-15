@@ -291,5 +291,7 @@
 - [x] Vals alarm schema-grants (volgorde) opgelost in de vergelijking
 - [x] tenant-backfill: openstaande uitnodiging telt niet als afwijking (51 controles, 0 live)
 - [x] Live: schema-snapshot 0 verschillen, certify-0280 CERTIFIED op de live catalogus, ANALYZE op de drie verzegelde tabellen
+- [x] End-to-end keten verzegelde aanvraag + boeking op 0280 (src/test/e2e-sealed-chain.test.ts, offline replay)
+- [ ] Productie (Vercel) uitrollen met de code op schemaniveau 0280 (eigenaar)
 - [ ] Verdere intrekking van rout_app-tabelrechten: alleen per tabel na nalezen van de code (wacht op keuze eigenaar)
 - [ ] OWNER_DATABASE_URL verwijderen (wacht op eigenaar)

@@ -783,3 +783,18 @@ Rechten (nagekeken, niets ingetrokken):
 - PUBLIC heeft EXECUTE op 265 functies in `public`: 253 SECURITY INVOKER (draaien met de rechten van de aanroeper, geven niets extra) en 12+2 triggerfuncties (niet rechtstreeks aanroepbaar). Niet gewijzigd.
 
 `OWNER_DATABASE_URL` staat op uitdrukkelijk verzoek van de eigenaar nog in de projectgeheimen.
+
+## Bijlage: end-to-end keten verzegelde aanvraag en boeking op schema 0280 (2026-11-15)
+
+`src/test/e2e-sealed-chain.test.ts` speelt de hele keten na op een offline replay van db/ (0000–0280, PGlite, als `rout_app` met `rout.current_user_id`); Neon wordt niet beschreven. Echte code in elke stap: crypto-worker-ops (`runEnclaveOp`), `publishOwnBookingKey`, `profileBookingKey`/`eventTypeHostKeys`, `createSealedInquiry`, `bookSlot`, `listHostInquiries`, `readOwnBookingKey`, de 0278-functies. Alleen de randen zijn vervangen: `hostFor` (profielopzoeking), mail, agenda-uitnodiging en objectopslag (schrijven gooit een fout).
+
+1. Host-apparaat: Master Key, `bookingKey.ensure`, publicatie via `rout_booking_host_key_publish`.
+2. Bezoeker: `booking.seal` maakt een RVE1-bkh-envelope (ML-KEM-1024 + X25519) en lost de BLAKE3-Hashcash op in de worker; de envelope bevat geen naam, e-mail of bericht in leesbare vorm.
+3. Server: een vervalste nonce geeft `pow_invalid`, een verlopen epoch `pow_stale`, beide zonder één databasecall; een geldig bewijs wordt aanvaard; hetzelfde bewijs een tweede keer wordt geweigerd (unieke BLAKE3-hash), voor aanvragen en boekingen.
+4. Database: `inquiries` en `booking_payloads` bevatten alleen de envelope, hash, nonce en epoch.
+5. Host: een ander lid ziet geen rij (RLS); de host leest zijn rij en opent die in de worker met de sleutel uit zijn Master Key; het apparaat van een ander lid krijgt `key_mismatch`.
+6. Wissen: de test vangt elke seed, geheime sleutel en gepadde klare tekst die de RVE1-laag maakt, plus de envelope- en hashkopie van de server, en eist dat ze allemaal nul zijn zodra de bewerking terugkeert. De meegegeven publieke hostsleutels worden ook gewist.
+
+Grenzen, eerlijk: JavaScript heeft geen `explicit_bzero`; `fill(0)` wist de bytes die de code bezit, maar strings (het geopende bericht in de UI, base64-tekst) en interne kopieën van de crypto-bibliotheken kunnen niet gewist worden. Dat stond al in de regels van de crypto-worker.
+
+Let op de naamgeving: de schrijffuncties zijn die van 0278 (`rout_inquiry_create_sealed`, `rout_booking_create_sealed`); 0279 en 0280 veranderden alleen rechten en tekst, geen schrijfpaden.
