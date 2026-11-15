@@ -339,6 +339,9 @@ impl Int {
     fn half(&self) -> Result<Int> {
         self.exact(&Int::from_i64(2))
     }
+    fn half_floor(&self) -> Result<Int> {
+        Ok(self.divmod(&Int::from_i64(2))?.0)
+    }
     fn to_limbs<const K: usize>(&self) -> Result<[u64; K]> {
         if self.neg || mlen(&self.m) > K {
             return Err(Error::Invalid);
@@ -400,6 +403,58 @@ fn solve_mod(a: &Int, b: &Int, m: &Int) -> Result<(Int, Int)> {
         return Err(Error::Invalid);
     }
     Ok((q.mul(&d)?.modp(m)?, m.exact(&g)?))
+}
+
+/// floor(sqrt(n)) for n >= 0 (Newton from a power of two above the root).
+fn isqrt(n: &Int) -> Result<Int> {
+    if n.is_neg() {
+        return Err(Error::Invalid);
+    }
+    if n.is_zero() {
+        return Ok(Int::zero());
+    }
+    let k = (n.bits() + 1) / 2;
+    let mut m = [0u64; W];
+    m[k / 64] = 1u64 << (k % 64);
+    let mut x = Int::mk(false, m);
+    loop {
+        let y = x.add(&n.divmod(&x)?.0)?.half_floor()?;
+        if y.cmp(&x) != Ordering::Less {
+            return Ok(x);
+        }
+        x = y;
+    }
+}
+
+/// The NUCOMP/NUDUPL stopping bound floor((|D| / 4)^(1/4)).
+pub fn nucomp_bound(d: &Int) -> Result<Int> {
+    let q = d.abs().divmod(&Int::from_i64(4))?.0;
+    isqrt(&isqrt(&q)?)
+}
+
+/// Partial extended Euclid on (bx, by), 0 <= bx < by, stopping once |by| <= bound:
+/// returns (bx, by, x, y, steps) with the cofactors of the bx sequence.
+fn partial_euclid(mut bx: Int, mut by: Int, bound: &Int) -> Result<(Int, Int, Int, Int, u32)> {
+    let (mut x, mut y) = (Int::from_i64(1), Int::zero());
+    let mut z = 0u32;
+    while by.abs().cmp(bound) == Ordering::Greater && !bx.is_zero() {
+        let (q, t) = by.divmod(&bx)?;
+        by = core::mem::replace(&mut bx, t);
+        let t2 = y.sub(&q.mul(&x)?)?;
+        y = core::mem::replace(&mut x, t2);
+        z += 1;
+        if z > 1 << 16 {
+            return Err(Error::Invalid);
+        }
+    }
+    Ok((bx, by, x, y, z))
+}
+
+/// Explicit early wipe of intermediates (Drop wipes them again).
+fn wipe_ints(xs: &mut [&mut Int]) {
+    for v in xs.iter_mut() {
+        wipe::words(&mut v.m);
+    }
 }
 
 // ------------------------------------------------------------------ binary quadratic forms
@@ -475,48 +530,123 @@ impl Form {
         Ok(())
     }
 
-    /// Composition (Shanks; the inkfish reference algorithm), reduced.
-    pub fn compose(&self, o: &Form) -> Result<Form> {
-        let (a1, b1, c1) = (&self.a, &self.b, &self.c);
-        let (a2, b2, c2) = (&o.a, &o.b, &o.c);
-        let g = b2.add(b1)?.half()?;
-        let h = b2.sub(b1)?.half()?;
-        let w = gcd(&gcd(a1, a2)?, &g)?;
-        let s = a1.exact(&w)?;
-        let t = a2.exact(&w)?;
-        let u = g.exact(&w)?;
-        let st = s.mul(&t)?;
-        let tu = t.mul(&u)?;
-        let hu = h.mul(&u)?;
-        let (k0, cf) = solve_mod(&tu, &hu.add(&s.mul(c1)?)?, &st)?;
-        let (n, _) = solve_mod(&t.mul(&cf)?, &h.sub(&t.mul(&k0)?)?, &s)?;
-        let k = k0.add(&cf.mul(&n)?)?;
-        let l = t.mul(&k)?.sub(&h)?.exact(&s)?;
-        let m = tu.mul(&k)?.sub(&hu)?.sub(&c1.mul(&s)?)?.exact(&st)?;
-        let _ = c2;
-        let mut f = Form {
-            a: st,
-            b: w.mul(&u)?.sub(&k.mul(&t)?.add(&l.mul(&s)?)?)?,
-            c: k.mul(&l)?.sub(&w.mul(&m)?)?,
+    /// Composition by NUCOMP (Shanks; Jacobson and van der Poorten, "Computational aspects of
+    /// NUCOMP", ANTS 2002): the partial extended Euclid stops at `bound` = floor((|D|/4)^(1/4)),
+    /// so every intermediate stays near sqrt|D| instead of |D|. Output reduced.
+    pub fn compose(&self, o: &Form, bound: &Int) -> Result<Form> {
+        // (u1, v1, w1) carries the larger leading coefficient.
+        let (f1, f2) = if self.a.cmp(&o.a) == Ordering::Less { (o, self) } else { (self, o) };
+        let (u1, v1, w1) = (&f1.a, &f1.b, &f1.c);
+        let (u2, v2, w2) = (&f2.a, &f2.b, &f2.c);
+        let s = v1.add(v2)?.half()?;
+        let m = v2.sub(&s)?;
+        // F = gcd(u2, u1) with b * u2 = F (mod u1).
+        let (f, b) = xgcd(u2, u1)?;
+        let (g, bx_full, by_full, cy_big, dy_big);
+        if s.modp(&f)?.is_zero() {
+            g = f;
+            bx_full = m.mul(&b)?;
+            by_full = u1.exact(&g)?;
+            cy_big = u2.exact(&g)?;
+            dy_big = s.exact(&g)?;
+        } else {
+            // G = gcd(F, s) with y * s = G (mod F).
+            let (gg, y) = xgcd(&s.modp(&f)?, &f)?;
+            let h = f.exact(&gg)?;
+            by_full = u1.exact(&gg)?;
+            cy_big = u2.exact(&gg)?;
+            dy_big = s.exact(&gg)?;
+            let l = y.mul(&b.mul(&w1.modp(&h)?)?.add(&w2.modp(&h)?)?)?.modp(&h)?;
+            bx_full = b.mul(&m.exact(&h)?)?.add(&l.mul(&by_full.exact(&h)?)?)?;
+            g = gg;
+        }
+        let (mut bx, mut by, mut x, mut y, z) = partial_euclid(bx_full.modp(&by_full)?, by_full.clone(), bound)?;
+        if z == 0 {
+            let q1 = cy_big.mul(&bx)?;
+            let cx = q1.sub(&m)?.exact(&by)?;
+            let dx = bx.mul(&dy_big)?.sub(w2)?.exact(&by)?;
+            let mut out = Form {
+                a: by.mul(&cy_big)?,
+                b: v2.sub(&q1.add(&q1)?)?,
+                c: bx.mul(&cx)?.sub(&g.mul(&dx)?)?,
+            };
+            out.reduce()?;
+            return Ok(out);
+        }
+        if z & 1 == 1 {
+            by = by.neg();
+            y = y.neg();
+        }
+        let (ax, ay) = (g.mul(&x)?, g.mul(&y)?);
+        let cx = cy_big.mul(&bx)?.sub(&m.mul(&x)?)?.exact(&by_full)?;
+        let q1 = by.mul(&cx)?;
+        let q2 = q1.add(&m)?;
+        let dx = dy_big.mul(&bx)?.sub(&w2.mul(&x)?)?.exact(&by_full)?;
+        let q3 = y.mul(&dx)?;
+        let q4 = q3.add(&dy_big)?;
+        let dy = q4.exact(&x)?;
+        let cy = if bx.is_zero() { cx.mul(&dy)?.sub(w1)?.exact(&dx)? } else { q2.exact(&bx)? };
+        let mut out = Form {
+            a: by.mul(&cy)?.sub(&ay.mul(&dy)?)?,
+            b: g.mul(&q3.add(&q4)?)?.sub(&q1)?.sub(&q2)?,
+            c: bx.mul(&cx)?.sub(&ax.mul(&dx)?)?,
         };
-        f.reduce()?;
-        Ok(f)
+        wipe_ints(&mut [&mut bx, &mut x]);
+        out.reduce()?;
+        Ok(out)
     }
 
-    pub fn square(&self) -> Result<Form> {
-        self.compose(self)
+    /// Squaring by NUDUPL (NUCOMP specialised to f = g; same reference). Output reduced.
+    pub fn square(&self, bound: &Int) -> Result<Form> {
+        let (u, v, w) = (&self.a, &self.b, &self.c);
+        // G = gcd(u, v) with y * v = G (mod u).
+        let (g, y0) = xgcd(&v.modp(u)?, u)?;
+        let by_full = u.exact(&g)?;
+        let dy_big = v.exact(&g)?;
+        let bx_full = y0.mul(w)?.modp(&by_full)?;
+        let (bx, mut by, x, mut y, z) = partial_euclid(bx_full, by_full.clone(), bound)?;
+        if z == 0 {
+            let dx = bx.mul(&dy_big)?.sub(w)?.exact(&by)?;
+            let q1 = by.mul(&bx)?;
+            let mut out = Form {
+                a: by.mul(&by)?,
+                b: v.sub(&q1.add(&q1)?)?,
+                c: bx.mul(&bx)?.sub(&g.mul(&dx)?)?,
+            };
+            out.reduce()?;
+            return Ok(out);
+        }
+        if z & 1 == 1 {
+            by = by.neg();
+            y = y.neg();
+        }
+        let (ax, ay) = (g.mul(&x)?, g.mul(&y)?);
+        let dx = dy_big.mul(&bx)?.sub(&w.mul(&x)?)?.exact(&by_full)?;
+        let q1 = y.mul(&dx)?;
+        let dy = q1.add(&dy_big)?;
+        let b3 = g.mul(&dy.add(&q1)?)?;
+        let dy = dy.exact(&x)?;
+        let (bx2, by2) = (bx.mul(&bx)?, by.mul(&by)?);
+        let sum = bx.add(&by)?;
+        let mut out = Form {
+            a: by2.sub(&ay.mul(&dy)?)?,
+            b: b3.sub(&sum.mul(&sum)?)?.add(&by2)?.add(&bx2)?,
+            c: bx2.sub(&ax.mul(&dx)?)?,
+        };
+        out.reduce()?;
+        Ok(out)
     }
 
     /// self^e for e as little-endian limbs (public exponent, square-and-multiply).
-    pub fn pow<const E: usize>(&self, e: &[u64; E], d: &Int) -> Result<Form> {
+    pub fn pow<const E: usize>(&self, e: &[u64; E], d: &Int, bound: &Int) -> Result<Form> {
         let mut acc = Form::identity(d)?;
         let mut started = false;
         for i in (0..64 * E).rev() {
             if started {
-                acc = acc.square()?;
+                acc = acc.square(bound)?;
             }
             if (e[i / 64] >> (i % 64)) & 1 == 1 {
-                acc = if started { acc.compose(self)? } else { self.clone() };
+                acc = if started { acc.compose(self, bound)? } else { self.clone() };
                 started = true;
             }
         }
