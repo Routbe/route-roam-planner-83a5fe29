@@ -140,9 +140,13 @@ describe("db-pending/0278 on a replay of db/", () => {
     expect((await db.query("select 1 from public.bookings where guest_email like '66666666%'")).rows).toHaveLength(0);
   });
 
-  it("the rollback removes 0278 completely and 0278 applies again afterwards", async () => {
+  it("the rollback refuses while sealed rows exist, then removes 0278 completely, and 0278 applies again", async () => {
     await db.exec("reset role");
     const body = readFileSync(join(ROOT, "db-pending", "0278_zk_inquiries_and_rve1_payloads_rollback.sql"), "utf8");
+    // While sealed ciphertext exists the rollback refuses: it would destroy the only copy.
+    await expect(db.exec(`begin;\n${body}\n;commit;`)).rejects.toThrow(/rollback refused/);
+    await db.exec("rollback");
+    await db.exec("delete from public.booking_payloads; delete from public.inquiries; delete from public.bookings where intake_answers->>'v' = '3'");
     await db.exec(`begin;\n${body}\n;commit;`);
     const left = await db.query<{ n: string }>(`select coalesce(to_regclass('public.inquiries')::text, '') ||
       coalesce(to_regclass('public.booking_payloads')::text, '') || coalesce(to_regclass('public.booking_host_keys')::text, '') as n`);
