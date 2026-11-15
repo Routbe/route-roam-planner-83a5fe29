@@ -741,3 +741,14 @@ Gebouwd, offline getest; **niets live gezet**. 0278 staat nog in `db-pending/`, 
 Bewijs: `bun scripts/formal-rls/certify-0278.ts` → CERTIFIED (1225 verplichtingen, 0 unproven, 0 nieuwe bevindingen, elke nieuwe tabel 5/5 bewezen; `docs/rls-0278-certification.md`). `src/test/migration-0278.test.ts` speelt db/ + 0278 offline na en test rechten, RLS-isolatie, replay, epoch, rollback-weigering bij data en herapplicatie.
 
 Open (eigenaar): `bun scripts/tenant-backfill.ts --gateway` of `--url-env OWNER_DATABASE_URL` lokaal (0 afwijkingen), daarna GO voor 0278 via `scripts/migration-rollout.ts`, `CODE_SCHEMA_LEVEL` naar 0278 bij het verplaatsen naar `db/`, en de reproduceerbare Wasm-build in CI.
+
+## Bijlage: 0278 live op Neon (2026-11-15 18:45 UTC, GO eigenaar)
+
+- Voorcontroles live met de tijdelijke owner-verbinding (`neondb_owner`): `tenant-backfill --url-env OWNER_DATABASE_URL` 52 controles, 0 afwijkingen; `migration-history-check` 271 rijen, 0 afwijkingen; `security-definer-check` 424 definers, 0 afwijkingen.
+- `db-pending/0278_zk_inquiries_and_rve1_payloads.sql` → `db/`; uitgevoerd via `scripts/migration-rollout.ts` in één transactie: checksum-controle, voorganger 0277, definer-guard en registratie `508850f1cf8e57e89bbe4e888f5e64c62e71015d23c5f20eb2b99458b7052128`. `CODE_SCHEMA_LEVEL` = 0278.
+- Live geverifieerd: tabellen `booking_host_keys`, `inquiries`, `booking_payloads` met RLS aan en één SELECT-policy elk (eigen host); 8 nieuwe definers op `pg_catalog, pg_temp`, PUBLIC zonder EXECUTE, de twee interne helpers ook dicht voor `rout_app`. Een directe INSERT als `rout_app` wordt door RLS geweigerd. `certify-0278.ts` opnieuw CERTIFIED (1225 verplichtingen, 0 unproven).
+- Naamgeving: de opdracht noemde `booking_host_envelopes` en `host_booking_keys`; de migratie heet ze `booking_payloads` en `booking_host_keys`. Er zijn geen tabellen hernoemd.
+- Bevinding: Neons default privileges (`neondb_owner`: tabellen → `rout_app=arwd`) gaven `rout_app` ook INSERT/UPDATE/DELETE op de drie nieuwe tabellen. RLS weigert die schrijfacties nu al; `db-pending/0279_sealed_tables_read_only_grants.sql` trekt ze in en wacht op een GO.
+- Bestaande drift, niet door 0278: `schema-snapshot --check` meldt nog `rout_pow_spend` (regeleinden), `sync_social_grid_draft`, de Neon-kolom `neon_auth.project_config.auth_logs_export_enabled` en schema-grants.
+- Productie (Vercel) draait nog code op 0277; 0278 is additief, dus die blijft werken. De nieuwe boekings- en aanvraagcode kan nu worden uitgerold.
+- Testcorrectie: twee lektests zochten "Ada" ook in willekeurige versleutelde tekst (±1% kans op toeval); de envelope wordt nu eerst weggelaten.

@@ -87,6 +87,7 @@ use the editor.
 
 ## Function execute rights
 - A SECURITY DEFINER helper that only other definers or triggers call gets `revoke all ... from public, rout_app` in the migration that creates it; rout_app keeps EXECUTE only on functions app code or SECURITY INVOKER code calls. Why: Neon's default privileges grant rout_app EXECUTE on every new function, so revoking only PUBLIC leaves internal helpers callable by the app role.
+- Every migration that creates a table revokes from rout_app every table privilege it should not have, not only from PUBLIC. Why: Neon's default privileges grant rout_app INSERT/UPDATE/DELETE on each new table (found after 0278), which a PGlite replay does not show.
 - A replay of db/ must end with the same function EXECUTE rights as Neon (db/0260 recorded them; definer-execute-grants.test.ts guards it); every migration states function grants explicitly instead of relying on default privileges. Why: Neon's default privileges and a fresh replay diverge, and a rebuilt database was both looser for PUBLIC and broken for rout_app.
 
 ## Staged database lockdowns
