@@ -2,7 +2,7 @@ import { AwsClient } from "aws4fetch";
 import { storageFailureCode, storageNetworkCode } from "./storage-errors";
 
 /**
- * Scaleway Object Storage (S3-compatible, fr-par).
+ * S3-compatible Object Storage (default endpoint: Scaleway fr-par).
  *
  * Three buckets, strictly separated:
  * - client   → member data: profile photos, app media, temporary QR files
@@ -13,36 +13,58 @@ import { storageFailureCode, storageNetworkCode } from "./storage-errors";
  */
 export type BucketKind = "client" | "internal" | "default";
 
-const BUCKET_ENV: Record<BucketKind, string> = {
-  client: "SCALEWAY_CLIENT_BUCKET",
-  internal: "SCALEWAY_INTERNAL_BUCKET",
-  default: "SCALEWAY_DEFAULT_BUCKET",
+/**
+ * Provider-agnostic resolution: the generic S3_* names win, the SCALEWAY_* names are a runtime
+ * fallback only. Credentials resolve as one pair from one family (never a key of one provider
+ * with the secret of another). A bucket of a specific kind beats the shared bucket name, so the
+ * client and internal buckets never collapse into one when both kinds are configured.
+ */
+const BUCKET_ENV: Record<BucketKind, readonly string[]> = {
+  client: ["S3_CLIENT_BUCKET", "SCALEWAY_CLIENT_BUCKET"],
+  internal: ["S3_INTERNAL_BUCKET", "SCALEWAY_INTERNAL_BUCKET"],
+  default: ["S3_DEFAULT_BUCKET", "SCALEWAY_DEFAULT_BUCKET"],
 };
+const SHARED_BUCKET_ENV = ["S3_BUCKET_NAME", "SCALEWAY_DEFAULT_BUCKET"] as const;
+
+type Env = Record<string, string | undefined>;
+const first = (env: Env, names: readonly string[]) => names.map((n) => env[n]).find((v) => typeof v === "string" && v.trim() !== "")?.trim();
 
 export class StorageNotConfigured extends Error {
   constructor() {
-    super("not_configured: Scaleway Object Storage — bestandsopslag is nog niet ingesteld (sleutels of bucket ontbreken). Uploaden, ook van video's, kan pas zodra die zijn toegevoegd.");
+    super("not_configured: Object Storage (S3) — bestandsopslag is nog niet ingesteld (sleutels of bucket ontbreken). Uploaden, ook van video's, kan pas zodra die zijn toegevoegd.");
     this.name = "StorageNotConfigured";
   }
 }
 
+export type StorageConfig = { accessKeyId: string; secretAccessKey: string; region: string; endpoint: string; source: "s3" | "scaleway" };
+
+/** Pure resolver over an env map (exported for tests). */
+export function resolveStorageConfig(env: Env): StorageConfig | null {
+  const generic = { id: first(env, ["S3_ACCESS_KEY_ID"]), secret: first(env, ["S3_SECRET_ACCESS_KEY"]) };
+  const legacy = { id: first(env, ["SCALEWAY_ACCESS_KEY"]), secret: first(env, ["SCALEWAY_SECRET_KEY"]) };
+  const pair = generic.id && generic.secret ? { ...generic, source: "s3" as const } : legacy.id && legacy.secret ? { ...legacy, source: "scaleway" as const } : null;
+  if (!pair) return null;
+  const region = first(env, ["S3_REGION", "SCALEWAY_REGION"]) ?? "fr-par";
+  const endpoint = (first(env, ["S3_ENDPOINT", "SCALEWAY_ENDPOINT"]) ?? `https://s3.${region}.scw.cloud`).replace(/\/$/, "");
+  return { accessKeyId: pair.id!, secretAccessKey: pair.secret!, region, endpoint, source: pair.source };
+}
+
+/** Bucket for a kind: kind-specific (S3_* then SCALEWAY_*), then the shared name (S3_BUCKET_NAME then SCALEWAY_DEFAULT_BUCKET). */
+export function resolveBucket(env: Env, kind: BucketKind): string | undefined {
+  return first(env, BUCKET_ENV[kind]) ?? first(env, SHARED_BUCKET_ENV);
+}
+
 function config() {
-  // Generic S3_* names (Vercel) are accepted as aliases of the SCALEWAY_* names.
-  const accessKeyId = process.env["SCALEWAY_ACCESS_KEY"] || process.env["S3_ACCESS_KEY_ID"];
-  const secretAccessKey = process.env["SCALEWAY_SECRET_KEY"] || process.env["S3_SECRET_ACCESS_KEY"];
-  const region = process.env["SCALEWAY_REGION"] || process.env["S3_REGION"] || "fr-par";
-  const endpoint = (process.env["SCALEWAY_ENDPOINT"] || process.env["S3_ENDPOINT"] || `https://s3.${region}.scw.cloud`).replace(/\/$/, "");
-  if (!accessKeyId || !secretAccessKey) return null;
-  return { accessKeyId, secretAccessKey, region, endpoint };
+  return resolveStorageConfig(process.env);
 }
 
 export function storageConfigured(kind: BucketKind = "client"): boolean {
-  return Boolean(config() && (process.env[BUCKET_ENV[kind]] || process.env["SCALEWAY_DEFAULT_BUCKET"] || process.env["S3_BUCKET_NAME"]));
+  return Boolean(config() && resolveBucket(process.env, kind));
 }
 
 function resolve(kind: BucketKind) {
   const cfg = config();
-  const bucket = process.env[BUCKET_ENV[kind]] || process.env["SCALEWAY_DEFAULT_BUCKET"] || process.env["S3_BUCKET_NAME"];
+  const bucket = resolveBucket(process.env, kind);
   if (!cfg || !bucket) throw new StorageNotConfigured();
   const client = new AwsClient({
     accessKeyId: cfg.accessKeyId,
