@@ -726,3 +726,18 @@ Geen SQL-migratie, Neon niet aangeraakt, `CODE_SCHEMA_LEVEL` blijft `"0277"`.
   - Geen beheerlink voor de gast (status) — vraagt een EXPAND-migratie.
   - Overige safety-pagina's bestaan alleen in het Nederlands.
   - De server levert de openbare sleutel; dat blijft de gewone grens van versleuteling in een webbrowser.
+
+## Bijlage: Level-10 stappen 1–5 — 0278-paden, Hashcash vóór de database, VDF alleen class groups (2026-11-15, geen 100%-attestatie)
+
+Gebouwd, offline getest; **niets live gezet**. 0278 staat nog in `db-pending/`, Neon is niet beschreven, Vercel niet aangeraakt, de gepinde Wasm (`rout-zk.wasm`, `zk-wasm-pin.ts`) is ongewijzigd.
+
+1. **Hashcash vóór de database.** De crypto-worker (`booking.seal` met `pow`) lost een BLAKE3-Hashcash (16 bits, epoch-emmers van 10 min) op over de exacte RVE1-bytes. `bookSlot` en `createSealedInquiry` controleren het bewijs vóór elke databasecall (ook vóór de schema-probe en de event-type-lookup); een geweigerd bewijs geeft `pow_invalid`/`pow_stale` zonder query. De unieke BLAKE3-hash in Neon maakt elk bewijs eenmalig.
+2. **Neon via 0278.** Boekingen gaan alleen via `rout_booking_create_sealed`, aanvragen via `rout_inquiry_create_sealed`, hostsleutels via `rout_booking_host_key_publish`; Studio leest `inquiries` en `booking_payloads` onder RLS. Zolang 0278 niet is toegepast antwoorden deze paden `unavailable` (fail-closed). **Gevolg: deze code niet uitrollen vóór de GO voor 0278**, anders kunnen gasten niet boeken of aanvragen.
+3. **Geen S3-writes meer voor aanvragen of boekingssleutels.** Oude `booking-key.json` en `inquiries/<pid>.json` worden alleen nog gelezen; een oude sleutel wordt ongewijzigd (zelfde kid) naar Neon overgezet.
+4. **Geheugen.** Worker wist de ontvangen publieke sleutels, de payload-hashes, de binding en de preimages; bij falen ook de envelopes. Server wist envelope- en hashkopieën na de call; een geweigerd bewijs wist zijn hashes zelf. De formulieren wissen sleutel- en envelopebuffers na het coderen.
+5. **S3-config.** Generieke `S3_*` gaan vóór `SCALEWAY_*`; sleutel en geheim komen altijd uit dezelfde familie.
+6. **VDF.** RSA-2048 (`vdf.rs`) verwijderd; class-group Wesolowski met NUCOMP/NUDUPL (`vdf_cg.rs`, `vdf_math.rs`), getoetst tegen de oude compositie op kleine en 2048-bit discriminanten. Alleen een lokale `--dev`-build; de gepinde module wordt pas vervangen via `.github/workflows/wasm-reproducible.yml`.
+
+Bewijs: `bun scripts/formal-rls/certify-0278.ts` → CERTIFIED (1225 verplichtingen, 0 unproven, 0 nieuwe bevindingen, elke nieuwe tabel 5/5 bewezen; `docs/rls-0278-certification.md`). `src/test/migration-0278.test.ts` speelt db/ + 0278 offline na en test rechten, RLS-isolatie, replay, epoch, rollback-weigering bij data en herapplicatie.
+
+Open (eigenaar): `bun scripts/tenant-backfill.ts --gateway` of `--url-env OWNER_DATABASE_URL` lokaal (0 afwijkingen), daarna GO voor 0278 via `scripts/migration-rollout.ts`, `CODE_SCHEMA_LEVEL` naar 0278 bij het verplaatsen naar `db/`, en de reproduceerbare Wasm-build in CI.

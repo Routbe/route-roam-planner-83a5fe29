@@ -3,13 +3,14 @@
  *
  * The guest's browser seals name, e-mail, note and intake answers in the crypto
  * worker (booking-seal.ts, RVE1 kind bkh: ML-KEM-1024 + X25519) once per host
- * of the event type. The server only checks the envelope headers and stores
- * `{ v: 2, pid, hosts }` in bookings.intake_answers; the plaintext columns get
- * fixed placeholders, so no guest name, address or note reaches Neon.
+ * of the event type. The server checks the BLAKE3 proof-of-work and the envelope
+ * headers; with db/0278 each host copy goes to public.booking_payloads and
+ * bookings.intake_answers holds only `{ v: 3, pid }` (older bookings: `{ v: 2, pid, hosts }`).
+ * The plaintext columns get fixed placeholders, so no guest name, address or note reaches Neon.
  *
- * Host keys: each host publishes `users/<uid>/booking-key.json` in the client
- * Scaleway bucket (public key + seed sealed under the workspace key). Guests
- * never learn host user ids: an envelope is bound to `hostRefOf(publicKey)`.
+ * Host keys: one row per host in public.booking_host_keys (db/0278; public key +
+ * seed sealed under the workspace key). Guests never learn host user ids: an
+ * envelope is bound to `hostRefOf(publicKey)`.
  *
  * Browser-safe: no server imports, no KEM code (that lives in the worker).
  */
@@ -70,7 +71,7 @@ export function hostRefOf(publicKey: Uint8Array): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** Published host booking key (Scaleway `users/<uid>/booking-key.json`). Only `publicKey` is ever shown to guests. */
+/** Published host booking key (public.booking_host_keys, db/0278). Only `publicKey` is ever shown to guests. */
 export const hostBookingKeyDoc = z
   .object({
     v: z.literal(1),
