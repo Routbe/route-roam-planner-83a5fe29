@@ -26,3 +26,11 @@ Applied and moved into `db/`: 0230, 0231, 0233, 0235, 0237 (production reported 
 - 0279_sealed_tables_read_only_grants.sql: applied on Neon (2026-11-15, owner's GO) through `scripts/migration-rollout.ts` (sha256 `dfeb79b8…`) and moved into `db/`; CODE_SCHEMA_LEVEL is 0279. Neon's default privileges had given rout_app INSERT/UPDATE/DELETE on the three 0278 tables (RLS already refused those writes); rout_app now holds SELECT only. No rollback: re-granting writes is never wanted.
 - 0280_zero_drift_reconciliation.sql: written and applied on Neon directly from `db/` (2026-11-15 19:11 UTC, owner's directive) through `scripts/migration-rollout.ts` (sha256 `6b28d9f2…`); CODE_SCHEMA_LEVEL is 0280. Re-creates `rout_pow_spend` and `sync_social_grid_draft` with the replay text (same tokens; the trigger function now on `pg_catalog, pg_temp`) and mirrors Neon Auth's `auth_logs_export_enabled` column for the replay only. No rollback: it changes no behaviour.
 
+## Current state of db/ (2026-11-15 19:12 UTC)
+
+- Schema level **0280** (`CODE_SCHEMA_LEVEL` in `src/lib/schema-version.ts`), 274 rows in `public.schema_migrations` on Neon.
+- `bun scripts/schema-snapshot.ts --check` against Neon: **0 differences** with `db/schema.snapshot.json` (which is produced by an offline replay of this folder).
+- `bun scripts/tenant-backfill.ts --url-env OWNER_DATABASE_URL`: 51 checks, 0 deviations.
+- `bun scripts/migration-history-check.ts` and `bun scripts/security-definer-check.ts`: 0 deviations (432 SECURITY DEFINER functions, all on `pg_catalog, pg_temp`).
+- `bun scripts/formal-rls/certify-0280.ts --url-env OWNER_DATABASE_URL`: CERTIFIED on the live catalog (1225 obligations, 547 Z3 checks, 0 unproven); report in `docs/rls-0280-certification.md`.
+- db/ holds only migration files, the snapshot and the seed (migration-order.test.ts), so these notes live here.
