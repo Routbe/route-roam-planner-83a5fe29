@@ -48,7 +48,7 @@ describe("db/0280", () => {
     expect(cfg).toEqual(["search_path=pg_catalog, pg_temp"]);
     const u = "00000000-0000-4000-8000-000000000280";
     await db.query("insert into public.users (id, email) values ($1, 'grid@example.org')", [u]);
-    await db.query("insert into public.profiles (id, username) values ($1, 'grid0280')", [u]);
+    await db.query("insert into public.profiles (id, username) values ($1, 'grid0280') on conflict (id) do update set username = excluded.username", [u]);
     const block = (items: unknown[]) => JSON.stringify({ blocks: [{ id: "b1", kind: "social_grid", value: JSON.stringify({ items }) }] });
     await db.query("insert into public.profile_drafts (user_id, space, payload) values ($1, 'verified', $2::jsonb)",
       [u, block([{ id: "i1", mediaUrl: "https://e.org/1.jpg", platform: "instagram" }, { id: "i2", mediaUrl: "https://e.org/2.jpg", platform: "nope" }])]);
