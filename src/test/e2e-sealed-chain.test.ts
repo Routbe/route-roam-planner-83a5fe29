@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * End-to-end chain of a sealed profile-card request on schema 0280, without mocks in the crypto
+ * End-to-end chain of a sealed profile-card request and a sealed booking on schema 0280, without mocks in the crypto
  * or the database path:
  *
  *   host device   crypto worker ops (runEnclaveOp): Master Key, bookingKey.ensure, published
@@ -21,6 +21,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { replayDb } from "../../scripts/formal-rls/replay";
 
 const HOST = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ET = "11111111-1111-4111-8111-111111111111";
 const OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const day = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
 const PAYLOAD = { name: "Ada Lovelace", email: "ada@example.com", note: "Graag een rustige ruimte, notenallergie." };
@@ -49,6 +50,7 @@ vi.mock("@/lib/booking.server", () => ({
   hostFor: async (handle: string) =>
     handle === "ann" ? { id: HOST, username: "ann", display_name: "Ann", email: null, config: { duration: 30, title: "Intro" } } : null,
 }));
+vi.mock("@/lib/booking-engine/invite.server", () => ({ sendBookingInvite: vi.fn(async () => undefined) }));
 vi.mock("@/lib/brevo/client", () => ({ sendSealedBookingRequestToHost: vi.fn(async () => ({ sent: true })) }));
 vi.mock("@/lib/storage/s3.server", () => ({
   storageConfigured: () => true,
@@ -91,6 +93,9 @@ const { runEnclaveOp } = await import("@/lib/crypto-enclave/enclave-core");
 const { publishOwnBookingKey, readOwnBookingKey } = await import("@/lib/booking-engine/host-booking-key.server");
 const { createSealedInquiry, listHostInquiries, profileBookingKey } = await import("@/lib/booking-engine/inquiry.server");
 const { parseInquiryRequest } = await import("@/lib/booking-engine/sealed-inquiry");
+const { bookSlot } = await import("@/lib/booking-engine/book.server");
+const { eventTypeHostKeys } = await import("@/lib/booking-engine/host-booking-key.server");
+const { parseBookingRequest } = await import("@/lib/booking-engine/types");
 const { b64uDecode, b64uEncode } = await import("@/lib/booking-engine/sealed-booking");
 const { solveSealedPow } = await import("@/lib/crypto-enclave/sealed-pow");
 const { resetSealedSchemaProbe } = await import("@/lib/booking-engine/sealed-schema.server");
@@ -111,6 +116,9 @@ beforeAll(async () => {
     insert into public.users (id, email) values ('${HOST}', 'ann@example.org'), ('${OTHER}', 'bob@example.org');
     insert into public.profiles (id, username, blocks) values ('${HOST}', 'ann', '[{"kind":"booking_request"}]'), ('${OTHER}', 'bob', '[]')
       on conflict (id) do update set username = excluded.username, blocks = excluded.blocks;
+    insert into public.booking_event_types (id, user_id, slug, title, duration_minutes, minimum_notice_hours) values ('${ET}', '${HOST}', 'intro', 'Intro', 30, 0);
+    insert into public.booking_event_type_hosts (event_type_id, user_id, priority) values ('${ET}', '${HOST}', 0);
+    insert into public.availability_cache (user_id, day, free_bits) values ('${HOST}', '${day}', repeat('1', 96)::bit(96));
   `);
   resetSealedSchemaProbe();
 }, 300_000);
@@ -203,5 +211,54 @@ describe("sealed request: visitor -> worker -> server -> Neon -> host Studio", (
     await call("masterKey.commitPending", { handle, userId: OTHER });
     const r = await runEnclaveOp("bookingKey.open", { userId: OTHER, doc, items: [{ payloadId: request.sealed.pid, envelope: b64uDecode(request.sealed.envelope)! }] });
     expect(r.ok ? "ok" : r.code).toBe("key_mismatch");
+  });
+});
+
+describe("sealed booking: visitor -> worker -> bookSlot -> booking_payloads -> host", () => {
+  const BOOKING = { name: "Grace Hopper", email: "grace@example.org", answers: [{ questionId: "q1", value: "COBOL" }] };
+  let req: ReturnType<typeof parseBookingRequest>;
+
+  it("seals one copy per host with a booking proof, rejects a forged proof before the database, books once", async () => {
+    h.caller = null;
+    const keys = await eventTypeHostKeys(ET);
+    if (!keys.ok) throw new Error(keys.reason);
+    const hosts = keys.hosts.map((k) => ({ ref: k.ref, publicKey: b64uDecode(k.publicKey)! }));
+    drain(h.secrets);
+    const sealed = await call("booking.seal", { hosts, payload: BOOKING, pow: { purpose: "booking" } });
+    expect(hosts.every((k) => k.publicKey.every((b) => b === 0))).toBe(true);
+    expect(allWiped(drain(h.secrets))).toBe(true);
+    req = parseBookingRequest({
+      eventTypeId: ET, startUtc: `${day}T10:00:00.000Z`, guestTimezone: "Europe/Brussels",
+      sealed: { pid: sealed.payloadId, hosts: Object.fromEntries(sealed.hosts.map((c) => [c.ref, b64uEncode(c.envelope)])) },
+      pow: sealed.pow!,
+    });
+
+    const before = h.dbCalls;
+    expect(await bookSlot({ ...req, pow: { ...req.pow, nonce: req.pow.nonce.replace(/^./, (c) => (c === "0" ? "1" : "0")) } })).toEqual({ ok: false, reason: "pow_invalid" });
+    expect(await bookSlot({ ...req, pow: { ...req.pow, purpose: undefined, epoch: req.pow.epoch - 100 } as typeof req.pow })).toEqual({ ok: false, reason: "pow_stale" });
+    expect(h.dbCalls).toBe(before);
+
+    drain(h.serverBuffers);
+    const ok = await bookSlot(req);
+    expect(ok.ok).toBe(true);
+    expect(allWiped(drain(h.serverBuffers))).toBe(true);
+    expect((await bookSlot(req)).ok).toBe(false);
+  });
+
+  it("stores only ciphertext and the host opens its copy under RLS on the device", async () => {
+    await h.db!.exec("reset role");
+    const all = (await h.db!.query<Record<string, unknown>>("select * from public.booking_payloads")).rows;
+    expect(all).toHaveLength(1);
+    expect(JSON.stringify(all)).not.toMatch(/Grace|example\.org|COBOL/);
+
+    h.caller = OTHER;
+    expect(await (await import("@/lib/neon")).sql`select 1 from public.booking_payloads`).toEqual([]);
+    h.caller = HOST;
+    const rows = (await (await import("@/lib/neon")).sql`select payload_id, host_ref, encrypted_rve1_payload from public.booking_payloads`) as Record<string, string>[];
+    expect(rows).toHaveLength(1);
+    drain(h.secrets);
+    const opened = await call("bookingKey.open", { userId: HOST, doc: (await readOwnBookingKey(HOST))!, items: [{ payloadId: rows[0]!.payload_id!, envelope: b64uDecode(rows[0]!.encrypted_rve1_payload!)! }] });
+    expect(opened.payloads).toEqual([BOOKING]);
+    expect(allWiped(drain(h.secrets))).toBe(true);
   });
 });
