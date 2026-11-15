@@ -1097,6 +1097,7 @@
   "profile.reachLabel": "audience",
   "profile.requestBooking": "Demander un rendez-vous",
   "profile.requestFailed": "La demande a échoué.",
+  "profile.requestRateLimited": "Trop de demandes. Réessayez plus tard.",
   "profile.saveFailed": "L’enregistrement a échoué, veuillez réessayer plus tard",
   "profile.scanProfilePrefix": "Scannez pour ouvrir le profil de @",
   "profile.scanProfileSuffix": "sur ROUT.",

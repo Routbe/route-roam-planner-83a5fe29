@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { sealedGuestDetails } from "./sealed-booking";
+import { sealedGuestDetails, sealedPowInput } from "./sealed-booking";
 import { intakeFields } from "./intake";
 
 /**
@@ -117,6 +117,8 @@ export const bookingRequest = z
     startUtc: utcInstant,
     guestTimezone: ianaZone,
     sealed: sealedGuestDetails,
+    /** BLAKE3 Hashcash over the sealed copies (crypto-enclave/sealed-pow.ts), verified before any database call. */
+    pow: sealedPowInput,
     /** Soft-lock from holdBookingSlot; without it (or expired) the regular rules apply. */
     holdId: z.string().uuid().nullable().default(null),
     holdSecret: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
@@ -134,7 +136,7 @@ export function parseBookingRequest(input: unknown): BookingRequest {
 
 export type BookingOutcome =
   | { ok: true; bookingIds: string[]; bookingToken: string | null; status: z.infer<typeof bookingStatus>; hostUserIds: string[]; checkoutUrl: string | null }
-  | { ok: false; reason: "slot_taken" | "outside_availability" | "too_soon" | "too_far" | "inactive" | "payment_unavailable" | "invalid_intake" | "guest_limit" | "host_key_missing" };
+  | { ok: false; reason: "slot_taken" | "outside_availability" | "too_soon" | "too_far" | "inactive" | "payment_unavailable" | "invalid_intake" | "guest_limit" | "host_key_missing" | "pow_invalid" | "pow_stale" | "unavailable" };
 
 /** Zero-knowledge busy block: the ONLY shape a calendar adapter may emit. */
 export interface BusyBlock {

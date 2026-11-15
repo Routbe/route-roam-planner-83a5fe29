@@ -3,19 +3,18 @@
  *
  * The visitor's browser seals name, e-mail and message in the crypto worker
  * (booking.seal → RVE1 kind bkh, ML-KEM-1024 + X25519) for the host's
- * published booking key (Scaleway `users/<uid>/booking-key.json`). Without a
- * migration, booking_requests (db/0240) cannot hold an envelope (message ≤ 500
- * characters), so:
+ * published booking key and solves a BLAKE3 Hashcash proof over the envelope.
+ * With db/0278 the envelope, its BLAKE3 hash, the nonce and the epoch bucket are
+ * stored in Neon (public.inquiries, through rout_inquiry_create_sealed).
  *
- *   - the envelope is stored next to the booking key, in the client bucket at
- *     `users/<hostId>/inquiries/<pid>.json`, as `{ v: 1, pid, ref, envelope }`;
- *   - the database row gets fixed placeholders: guest_name "RVE1",
- *     guest_email `<pid>@sealed.invalid`, guest_message null.
+ * Legacy (before 0278, read-only now): envelopes in the client bucket at
+ * `users/<hostId>/inquiries/<pid>.json` with placeholder booking_requests rows
+ * (guest_name "RVE1", guest_email `<pid>@sealed.invalid`). Nothing writes there anymore.
  *
  * Browser-safe: no server imports.
  */
 import { z } from "zod";
-import { HOST_ENVELOPE_SIZES } from "./sealed-booking";
+import { HOST_ENVELOPE_SIZES, sealedPowInput } from "./sealed-booking";
 
 export const INQUIRY_DOC_VERSION = 1;
 /** Any of these keys in a request means plaintext guest data: refused before validation. */
@@ -44,6 +43,8 @@ export const inquiryRequest = z
     preferredDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     preferredTime: z.string().regex(/^\d{2}:\d{2}$/),
     sealed: sealedInquiryPart,
+    /** BLAKE3 Hashcash over the envelope (crypto-enclave/sealed-pow.ts), verified before any database call. */
+    pow: sealedPowInput,
     altcha: z.string().max(4000).optional().nullable(),
   })
   .strict();
@@ -66,7 +67,7 @@ export type InquiryDoc = z.infer<typeof inquiryDoc>;
 
 export type InquiryOutcome =
   | { ok: true; pid: string }
-  | { ok: false; reason: "unavailable" | "host_key_missing" | "invalid" | "past_date" | "failed" };
+  | { ok: false; reason: "unavailable" | "host_key_missing" | "invalid" | "past_date" | "failed" | "pow_invalid" | "pow_stale" | "rate_limited" };
 
 /** One request as the host's Studio receives it; plaintext only for rows made before sealing. */
 export type HostInquiry = {

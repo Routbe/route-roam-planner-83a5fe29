@@ -1097,6 +1097,7 @@
   "profile.reachLabel": "bereik",
   "profile.requestBooking": "Afspraak aanvragen",
   "profile.requestFailed": "Aanvragen mislukt.",
+  "profile.requestRateLimited": "Te veel aanvragen. Probeer het later opnieuw.",
   "profile.saveFailed": "Opslaan mislukt, probeer later opnieuw",
   "profile.scanProfilePrefix": "Scan om het profiel van @",
   "profile.scanProfileSuffix": "te openen.",

@@ -1097,6 +1097,7 @@
   "profile.reachLabel": "reach",
   "profile.requestBooking": "Request an appointment",
   "profile.requestFailed": "Request failed.",
+  "profile.requestRateLimited": "Too many requests. Please try again later.",
   "profile.saveFailed": "Couldn't save, please try again later",
   "profile.scanProfilePrefix": "Scan to open the profile of @",
   "profile.scanProfileSuffix": "on ROUT.",

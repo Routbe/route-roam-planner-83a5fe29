@@ -1097,6 +1097,7 @@
   "profile.reachLabel": "Reichweite",
   "profile.requestBooking": "Termin anfragen",
   "profile.requestFailed": "Anfrage fehlgeschlagen.",
+  "profile.requestRateLimited": "Zu viele Anfragen. Bitte versuche es später erneut.",
   "profile.saveFailed": "Speichern fehlgeschlagen, versuch es später noch einmal",
   "profile.scanProfilePrefix": "Scanne, um das Profil von @",
   "profile.scanProfileSuffix": "zu öffnen.",
