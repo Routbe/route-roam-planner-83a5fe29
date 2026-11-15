@@ -14,8 +14,8 @@
 //! Elements travel as reduced forms: a (128 bytes) || sign(b) (1 byte) || |b| (128 bytes);
 //! decoding refuses anything that is not the unique reduced representative.
 //!
-//! Arithmetic: fixed-width signed integers ([u64; W] magnitudes on the stack), composition after
-//! Shanks/Atkin (the inkfish reference algorithm), Gauss reduction. No allocator and no memory
+//! Arithmetic: fixed-width signed integers ([u64; W] magnitudes on the stack), composition by NUCOMP and
+//! squaring by NUDUPL (Shanks; Jacobson-van der Poorten), Gauss reduction. No allocator and no memory
 //! growth; every integer is overwritten with volatile writes when it is dropped, so no squaring
 //! intermediate outlives its use. All values are public: these routines are variable-time.
 use core::cmp::Ordering;
@@ -752,10 +752,11 @@ pub fn evaluate_with(d: &Int, input: &[u8], t: u64, out: &mut [u8]) -> Result<()
     if out.len() != PROOF_LEN {
         return Err(Error::Invalid);
     }
+    let bound = nucomp_bound(d)?;
     let x = hash_to_group(input, t, d)?;
     let mut y = x.clone();
     for _ in 0..t {
-        y = y.square()?;
+        y = y.square(&bound)?;
     }
     let mut xb = [0u8; ELEM_LEN];
     x.encode(&mut xb)?;
@@ -767,10 +768,10 @@ pub fn evaluate_with(d: &Int, input: &[u8], t: u64, out: &mut [u8]) -> Result<()
     let mut pi = Form::identity(d)?;
     for _ in 0..t {
         let r2 = r.add(&r)?;
-        pi = pi.square()?;
+        pi = pi.square(&bound)?;
         if r2.cmp(&li) != Ordering::Less {
             r = r2.sub(&li)?;
-            pi = pi.compose(&x)?;
+            pi = pi.compose(&x, &bound)?;
         } else {
             r = r2;
         }
@@ -793,7 +794,8 @@ pub fn verify_with(d: &Int, input: &[u8], t: u64, proof: &[u8]) -> Result<()> {
     let mut two = [0u64; PL];
     two[0] = 2;
     let r = ml.from_mont(&ml.pow(&ml.to_mont(&two), &[t]));
-    let lhs = pi.pow(&l, d)?.compose(&x.pow(&r, d)?)?;
+    let bound = nucomp_bound(d)?;
+    let lhs = pi.pow(&l, d, &bound)?.compose(&x.pow(&r, d, &bound)?, &bound)?;
     if lhs == y {
         Ok(())
     } else {
@@ -837,6 +839,79 @@ mod unit {
         out
     }
 
+    /// The former Shanks/Atkin composition, kept only as an independent test oracle.
+    fn compose_reference(f1: &Form, f2: &Form) -> Form {
+        let (a1, b1, c1) = (&f1.a, &f1.b, &f1.c);
+        let (a2, b2) = (&f2.a, &f2.b);
+        let g = b2.add(b1).unwrap().half().unwrap();
+        let h = b2.sub(b1).unwrap().half().unwrap();
+        let w = gcd(&gcd(a1, a2).unwrap(), &g).unwrap();
+        let s = a1.exact(&w).unwrap();
+        let t = a2.exact(&w).unwrap();
+        let u = g.exact(&w).unwrap();
+        let st = s.mul(&t).unwrap();
+        let tu = t.mul(&u).unwrap();
+        let hu = h.mul(&u).unwrap();
+        let (k0, cf) = solve_mod(&tu, &hu.add(&s.mul(c1).unwrap()).unwrap(), &st).unwrap();
+        let (n, _) = solve_mod(&t.mul(&cf).unwrap(), &h.sub(&t.mul(&k0).unwrap()).unwrap(), &s).unwrap();
+        let k = k0.add(&cf.mul(&n).unwrap()).unwrap();
+        let l = t.mul(&k).unwrap().sub(&h).unwrap().exact(&s).unwrap();
+        let m = tu.mul(&k).unwrap().sub(&hu).unwrap().sub(&c1.mul(&s).unwrap()).unwrap().exact(&st).unwrap();
+        let mut f = Form {
+            a: st,
+            b: w.mul(&u).unwrap().sub(&k.mul(&t).unwrap().add(&l.mul(&s).unwrap()).unwrap()).unwrap(),
+            c: k.mul(&l).unwrap().sub(&w.mul(&m).unwrap()).unwrap(),
+        };
+        f.reduce().unwrap();
+        f
+    }
+
+    #[test]
+    fn nucomp_and_nudupl_match_the_reference_on_small_discriminants() {
+        for &dv in &[-23i64, -47, -71, -199, -1031, -10007, -100_003, -1_000_003] {
+            let dd = d(dv);
+            let bnd = nucomp_bound(&dd).unwrap();
+            let fs: Vec<Form> = reduced_forms(dv).iter().take(40).map(|&(a, b)| Form::from_ab(d(a), d(b), &dd).unwrap()).collect();
+            for x in &fs {
+                assert_eq!(x.square(&bnd).unwrap(), compose_reference(x, x), "nudupl D={}", dv);
+                for y in &fs {
+                    assert_eq!(x.compose(y, &bnd).unwrap(), compose_reference(x, y), "nucomp D={}", dv);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn nucomp_and_nudupl_match_the_reference_at_2048_bits() {
+        let dd = discriminant();
+        let bnd = nucomp_bound(&dd).unwrap();
+        let mut f = hash_to_group(b"nucomp-2048", 1, &dd).unwrap();
+        let g = hash_to_group(b"nucomp-2048-other", 1, &dd).unwrap();
+        for _ in 0..64 {
+            let sq = f.square(&bnd).unwrap();
+            assert_eq!(sq, compose_reference(&f, &f));
+            assert_eq!(sq.discriminant().unwrap(), dd);
+            let fg = f.compose(&g, &bnd).unwrap();
+            assert_eq!(fg, compose_reference(&f, &g));
+            assert!(fg.is_reduced());
+            f = fg.square(&bnd).unwrap();
+        }
+    }
+
+    #[test]
+    fn bound_is_the_fourth_root_of_a_quarter_of_d() {
+        // |D|/4 = 25_000 → sqrt = 158 → sqrt = 12.
+        assert_eq!(nucomp_bound(&d(-100_003)).unwrap(), d(12));
+        let l = nucomp_bound(&discriminant()).unwrap();
+        assert!(l.bits() >= 510 && l.bits() <= 512);
+    }
+
+    #[test]
+    fn discriminant_is_one_mod_four() {
+        // D = -p with p = 3 (mod 4)  <=>  D = 1 (mod 4): a fundamental discriminant, no RSA modulus.
+        assert_eq!(discriminant().modp(&d(4)).unwrap(), d(1));
+    }
+
     #[test]
     fn bignum_division_matches_u128() {
         let mut x: u128 = 0x1234_5678_9abc_def0_0fed_cba9_8765_4321;
@@ -878,16 +953,17 @@ mod unit {
             let h = forms.len() as u64;
             assert!(h % 2 == 1, "prime discriminant has odd class number");
             let dd = d(dv);
+            let bnd = nucomp_bound(&dd).unwrap();
             let id = Form::identity(&dd).unwrap();
             for &(a, b) in forms.iter().take(12) {
                 let f = Form::from_ab(d(a), d(b), &dd).unwrap();
                 assert!(f.is_reduced());
-                let p = f.pow(&[h], &dd).unwrap();
+                let p = f.pow(&[h], &dd, &bnd).unwrap();
                 assert_eq!(p, id, "f^h != 1 for D={} f=({},{})", dv, a, b);
                 // f^(h+1) == f and the discriminant is preserved by every step
-                let q = f.pow(&[h + 1], &dd).unwrap();
+                let q = f.pow(&[h + 1], &dd, &bnd).unwrap();
                 assert_eq!(q, f);
-                assert_eq!(f.square().unwrap().discriminant().unwrap(), dd);
+                assert_eq!(f.square(&bnd).unwrap().discriminant().unwrap(), dd);
             }
         }
     }
@@ -897,14 +973,15 @@ mod unit {
         let dv = -100_003i64;
         let dd = d(dv);
         let forms = reduced_forms(dv);
+        let bnd = nucomp_bound(&dd).unwrap();
         let fs: Vec<Form> = forms.iter().take(8).map(|&(a, b)| Form::from_ab(d(a), d(b), &dd).unwrap()).collect();
         for x in &fs {
             for y in &fs {
-                let xy = x.compose(y).unwrap();
+                let xy = x.compose(y, &bnd).unwrap();
                 assert!(xy.is_reduced());
-                assert_eq!(xy, y.compose(x).unwrap());
+                assert_eq!(xy, y.compose(x, &bnd).unwrap());
                 for z in fs.iter().take(3) {
-                    assert_eq!(xy.compose(z).unwrap(), x.compose(&y.compose(z).unwrap()).unwrap());
+                    assert_eq!(xy.compose(z, &bnd).unwrap(), x.compose(&y.compose(z, &bnd).unwrap(), &bnd).unwrap());
                 }
             }
         }
