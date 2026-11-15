@@ -258,7 +258,9 @@ export async function readCatalog(exec: Exec): Promise<Catalog> {
     const role = `${String(r["schema"])}:${String(r["grantee"])}`;
     (schemaGrantMap[role] ??= []).push(String(r["privilege"]));
   }
-  for (const k of Object.keys(schemaGrantMap)) schemaGrantMap[k] = [...new Set(schemaGrantMap[k])].sort();
+  // Keys in a fixed order: the catalog query returns schemas in physical order, which differs between Neon and a replay.
+  const sortedSchemaGrants: Record<string, string[]> = {};
+  for (const k of Object.keys(schemaGrantMap).sort()) sortedSchemaGrants[k] = [...new Set(schemaGrantMap[k])].sort();
 
   return {
     version: 1,
@@ -290,7 +292,7 @@ export async function readCatalog(exec: Exec): Promise<Catalog> {
     functions: functions
       .map((f) => ({ schema: String(f["schema"]), name: String(f["name"]), args: String(f["args"]), def: normalizeDef(String(f["def"])) }))
       .sort((a, b) => byName(a, b) || (a.args < b.args ? -1 : a.args > b.args ? 1 : 0)),
-    schemaGrants: schemaGrantMap,
+    schemaGrants: sortedSchemaGrants,
   };
 }
 
@@ -350,7 +352,12 @@ export function diffCatalogs(expected: Catalog, actual: Catalog): string[] {
     if (JSON.stringify(t.columnGrants ?? {}) !== JSON.stringify(u.columnGrants ?? {})) out.push(`~ column grants ${name} differ`);
   }
   for (const name of B.keys()) if (!A.has(name)) out.push(`+ table ${name} (unexpected)`);
-  if (JSON.stringify(expected.schemaGrants) !== JSON.stringify(actual.schemaGrants)) out.push("~ schema grants differ");
+  const grantKeys = new Set([...Object.keys(expected.schemaGrants), ...Object.keys(actual.schemaGrants)]);
+  for (const k of [...grantKeys].sort()) {
+    const a = JSON.stringify(expected.schemaGrants[k] ?? null);
+    const b = JSON.stringify(actual.schemaGrants[k] ?? null);
+    if (a !== b) out.push(`~ schema grants ${k} differ (expected ${a}, found ${b})`);
+  }
   return out;
 }
 
