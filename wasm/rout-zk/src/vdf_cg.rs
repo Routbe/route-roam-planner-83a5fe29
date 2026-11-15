@@ -7,7 +7,7 @@
 //!
 //!   x  = HashToGroup(input, T)    a prime form (a, b, c), a a 256-bit prime with (D/a) = 1
 //!   y  = x^(2^T)                  T sequential squarings
-//!   l  = HashToPrime(T, x, y)     256-bit prime (Fiat-Shamir), shared with vdf.rs
+//!   l  = HashToPrime(T, x, y)     256-bit prime (Fiat-Shamir, vdf_math.rs)
 //!   pi = x^floor(2^T / l)         long division on the fly
 //!   verify: pi^l * x^(2^T mod l) == y
 //!
@@ -21,7 +21,7 @@
 use core::cmp::Ordering;
 use sha2::{Digest, Sha256};
 
-use crate::vdf::{self, Limbs, Monty, PL};
+use crate::vdf_math::{self as math, Limbs, Monty, PL};
 use crate::{wipe, Error, Result};
 
 /// Limbs per integer: 4352 bits, enough for the 4097-bit products inside a composition.
@@ -569,10 +569,10 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         h.update(t.to_be_bytes());
         h.update((input.len() as u32).to_be_bytes());
         h.update(input);
-        let mut a: Limbs<PL> = vdf::from_be(&h.finalize());
+        let mut a: Limbs<PL> = math::from_be(&h.finalize());
         a[PL - 1] |= 1 << 63;
         a[0] |= 3;
-        if !vdf::probable_prime(&a) {
+        if !math::probable_prime(&a) {
             continue;
         }
         let ai = Int::from_limbs(&a, false);
@@ -597,7 +597,7 @@ fn hash_to_group(input: &[u8], t: u64, d: &Int) -> Result<Form> {
         };
         let dmm = mont.to_mont(&dm);
         let root_m = mont.pow(&dmm, &e);
-        if !vdf::eq(&mont.mul(&root_m, &root_m), &dmm) {
+        if !math::eq(&mont.mul(&root_m, &root_m), &dmm) {
             continue; // D is not a square mod a
         }
         let root = Int::from_limbs(&mont.from_mont(&root_m), false);
@@ -631,7 +631,7 @@ pub fn evaluate_with(d: &Int, input: &[u8], t: u64, out: &mut [u8]) -> Result<()
     x.encode(&mut xb)?;
     let (yb, pb) = out.split_at_mut(ELEM_LEN);
     y.encode(yb)?;
-    let l = vdf::hash_to_prime_dst(DST_L, t, &xb, yb)?;
+    let l = math::hash_to_prime_dst(DST_L, t, &xb, yb)?;
     let li = Int::from_limbs(&l, false);
     let mut r = Int::from_i64(1);
     let mut pi = Form::identity(d)?;
@@ -658,7 +658,7 @@ pub fn verify_with(d: &Int, input: &[u8], t: u64, proof: &[u8]) -> Result<()> {
     let x = hash_to_group(input, t, d)?;
     let mut xb = [0u8; ELEM_LEN];
     x.encode(&mut xb)?;
-    let l = vdf::hash_to_prime_dst(DST_L, t, &xb, &proof[..ELEM_LEN])?;
+    let l = math::hash_to_prime_dst(DST_L, t, &xb, &proof[..ELEM_LEN])?;
     let ml = Monty::<PL>::new(&l);
     let mut two = [0u64; PL];
     two[0] = 2;
