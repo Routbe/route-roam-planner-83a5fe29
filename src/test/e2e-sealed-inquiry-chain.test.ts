@@ -162,7 +162,9 @@ describe("sealed request: visitor -> worker -> server -> Neon -> host Studio", (
   it("4. server accepts the valid proof, writes only ciphertext through rout_inquiry_create_sealed, and wipes its copies", async () => {
     drain(h.serverBuffers);
     expect(await createSealedInquiry(request)).toEqual({ ok: true, pid: request.sealed.pid });
-    expect(allWiped(drain(h.serverBuffers))).toBe(true);
+    const kept = drain(h.serverBuffers);
+    console.log("DBG", kept.map((b) => [b.length, b.some((x) => x !== 0)]));
+    expect(allWiped(kept)).toBe(true);
     await h.db!.exec("reset role");
     const rows = (await h.db!.query<Record<string, unknown>>("select * from public.inquiries")).rows;
     expect(rows).toHaveLength(1);
