@@ -20,6 +20,17 @@ describe("schema drift detection", () => {
     expect(diffCatalogs(snapshot, changed)).toContain(`+ table ${changed.tables[0]!.schema}.zz_unexpected (unexpected)`);
   });
 
+  it("ignores the order of schema grant keys but reports a changed schema grant", () => {
+    const reordered = structuredClone(snapshot);
+    reordered.schemaGrants = Object.fromEntries(Object.entries(snapshot.schemaGrants).reverse());
+    expect(diffCatalogs(snapshot, reordered)).toEqual([]);
+    const widened = structuredClone(snapshot);
+    widened.schemaGrants["public:rout_app"] = ["CREATE", "USAGE"];
+    expect(diffCatalogs(snapshot, widened)).toEqual([
+      '~ schema grants public:rout_app differ (expected ["USAGE"], found ["CREATE","USAGE"])',
+    ]);
+  });
+
   it("treats AND-grouping differences between Postgres versions as equal", () => {
     expect(canonicalCheck("CHECK ((((a >= 5) AND (a <= 480)) AND ((a % 5) = 0)))")).toBe(
       canonicalCheck("CHECK (((a >= 5) AND (a <= 480) AND ((a % 5) = 0)))"),
